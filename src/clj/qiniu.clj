@@ -1,7 +1,7 @@
 (ns clj.qiniu
   (:import [com.qiniu.api.config Config]
            [com.qiniu.api.rs PutPolicy URLUtils GetPolicy RSClient Entry
-            EntryPath]
+            EntryPath EntryPathPair BatchCallRet BatchStatRet]
            [java.io InputStream File]
            [com.qiniu.api.io IoApi PutExtra PutRet]
            [com.qiniu.api.net CallRet]
@@ -11,6 +11,17 @@
 (defmacro ^:private set-value! [k v]
   `(when ~v
      (set! ~k ~v)))
+
+(defmacro def-threadlocal-var
+  "A macro to define thread-local var.
+    It also implement clojure.lang.IDeref interface,
+   so you can get it's value by @ or deref."
+  [name]
+  (let [name (with-meta name {:tag ThreadLocal})]
+    `(def ~name
+       (proxy [ThreadLocal clojure.lang.IDeref] []
+         (initialValue [] true)
+         (deref [] (.get ~(with-meta 'this {:tag `ThreadLocal})))))))
 
 (defonce throw-exception? (atom false))
 
@@ -31,7 +42,7 @@
 (defn uptoken
   "Create a uptoken for uploading file. see http://developer.qiniu.com/docs/v6/sdk/java-sdk.html#make-uptoken"
   [bucket & {:keys [access-key secret-key expires scope callbackUrl asyncOps returnBody escape detectMime insertOnly mimeLimit persistentOps persistentPipeline persistentNotifyUrl saveKey endUser fsizeLimit] :as opts}]
-  (let [mac (create-mac opts)
+  (let [mac (apply create-mac opts)
         ^PutPolicy pp (PutPolicy. bucket)]
     (set-value! (.expires pp) expires)
     (set-value! (.scope pp) scope)
@@ -50,7 +61,7 @@
     (set-value! (.fsizeLimit pp) fsizeLimit)
     (.token pp mac)))
 
-(defn callret->map [^CallRet ret]
+(defn- callret->map [^CallRet ret]
   (when ret
     (let [m {:status (.getStatusCode ret) :response (.getResponse ret)}]
       (when (.ok ret)
@@ -109,7 +120,7 @@
 (defn private-download-url
   "Create a download url for public file."
   [domain key & {:keys [expires access-key secret-key] :as opts}]
-  (let [mac (create-mac opts)
+  (let [mac (apply create-mac opts)
         ^String base-url (public-download-url domain key)
         ^GetPolicy gp (GetPolicy.)]
     (set-value! (.expires gp) expires)
@@ -117,6 +128,18 @@
 
 (def ^{:private true :dynamic true} batch-mode false)
 (def ^{:private true :dynamic true} batch-entries nil)
+(def-threadlocal-var batch-op)
+
+(defn- set-batch-op [op]
+  (if-let [exists @batch-op]
+    (when-not (= exists op)
+      (throw (ex-info (str "Already in batch " (name exists) " mode.")
+                      {:op exists})))
+    (.set batch-op op)))
+
+(defn- add-batch-entry [op v]
+  (set-batch-op op)
+  (conj batch-entries v))
 
 (defn- entry->map [^Entry e]
   (merge (callret->map e)
@@ -132,28 +155,106 @@
     (set! (.key ep) key)
     ep))
 
+(defn- ^RSClient rs-client [ & opts]
+  (RSClient. (apply create-mac opts)))
+
 (defn stat
-  "Stat file."
-  [bucket key & {:keys [access-key secret-key]}]
+  "Stat a file."
+  [bucket key & opts]
   (if-not batch-mode
-    (let [mac (create-mac access-key secret-key)]
-      (-> mac
-          (RSClient.)
-          (.stat bucket key)
-          (entry->map)))
-    (conj entries (create-entry-path bucket key))))
+    (->
+     (apply rs-client opts)
+     (.stat bucket key)
+     (entry->map))
+    (add-batch-entry :stat (create-entry-path bucket key))))
 
-(defn batch-stat [])
+(defn- ^EntryPathPair create-entry-pair [sb sk db dk]
+  (let [^EntryPathPair pair (EntryPathPair.)
+        ^EntryPath src (create-entry-path sb sk)
+        ^EntryPath dst (create-entry-path db dk)]
+    (set! (.src pair) src)
+    (set! (.dest pair) dst)
+    pair))
 
-(defn copy []
+(defn copy
+  "Copy a file"
+  [src-bucket src-key dst-bucket dst-key & opts]
   (if-not batch-mode
-    (let )))
+    (->
+     (apply rs-client opts)
+     (.copy src-bucket src-key dst-bucket dst-key)
+     (callret->map))
+    (add-batch-entry :copy
+                     (create-entry-pair src-bucket src-key dst-bucket dst-key))))
 
-(defn move [])
+(defn move
+  "Move a file"
+  [src-bucket src-key dst-bucket dst-key & opts]
+  (if-not batch-mode
+    (->
+     (apply rs-client opts)
+     (.move src-bucket src-key dst-bucket dst-key)
+     (callret->map))
+    (add-batch-entry :move
+                     (create-entry-pair src-bucket src-key dst-bucket dst-key))))
 
-(defn delete [])
+(defn Delete
+  "Delete a file."
+  [bucket key & opts]
+  (if-not batch-mode
+    (->
+     (apply rs-client opts)
+     (.delete bucket key)
+     (callret->map))
+    (add-batch-entry :delete (create-entry-path bucket key))))
 
-(defmacro with-batch [])
+(defmulti exec-batch
+  "excute batch operations based on op type."
+  {:private true}
+  (fn [rs-client entries op] op))
+
+(defmethod exec-batch :stat [^RSClient rc entries _]
+  (->
+   rc
+   (.batchStat entries)))
+
+(defmethod exec-batch :copy [^RSClient rc entries _]
+  (->
+   rc
+   (.batchCopy entries)))
+
+(defmethod exec-batch :move [^RSClient rc entries _]
+  (->
+   rc
+   (.batchMove entries)))
+
+(defmethod exec-batch :delete [^RSClient rc entries _]
+  (->
+   rc
+   (.batchDelete entries)))
+
+(defmethod exec-batch nil [_ _ _]
+  nil)
+
+(defmethod exec-batch :default [_ _ op]
+  (throw (ex-info (str "Unknown op:" op) {:op op})))
+
+(defn- convert-batchret [ret op]
+  (when ret
+    (if (= op :stat)
+      (map entry->map (.results ^BatchStatRet ret))
+      (map callret->map (.results ^BatchCallRet ret)))))
+
+(defn exec
+  "Execute  batch operations.The entries must be the same type."
+  [& {:keys [entries] :as opts}]
+  (-> (apply rs-client opts)
+      (exec-batch (or entries batch-entries) @batch-op)
+      (convert-batchret @batch-op)))
+
+(defmacro with-batch [ & body]
+  `(binding [batch-entries (vector)]
+     ~@body))
 
 (defn image-info [])
 
