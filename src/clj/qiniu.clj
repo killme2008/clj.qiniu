@@ -27,11 +27,11 @@
          (initialValue [] true)
          (deref [] (.get ~(with-meta 'this {:tag `ThreadLocal})))))))
 
-(defonce throw-exception? (atom false))
+(defonce ^:private throw-exception? (atom false))
 
 (defn set-config!
   "Set global config for qiniu sdk."
-  [& {:keys [access-key secret-key user-agent throw-exception?] :or {user-agent "Clojure qiniu sdk 0.1"}}]
+  [& {:keys [access-key secret-key user-agent throw-exception?] :or {user-agent "Clojure/qiniu sdk"}}]
   (do
     (set-value! Config/ACCESS_KEY access-key)
     (set-value! Config/SECRET_KEY secret-key)
@@ -40,13 +40,13 @@
       (reset! throw-exception? throw-exception?))
     Config))
 
-(defn- ^Mac create-mac [& {:keys [access-key secret-key]}]
+(defn- ^Mac create-mac [{:keys [access-key secret-key]}]
   (Mac. (or access-key Config/ACCESS_KEY) (or secret-key Config/SECRET_KEY)))
 
 (defn uptoken
   "Create a uptoken for uploading file. see http://developer.qiniu.com/docs/v6/sdk/java-sdk.html#make-uptoken"
   [bucket & {:keys [access-key secret-key expires scope callbackUrl asyncOps returnBody escape detectMime insertOnly mimeLimit persistentOps persistentPipeline persistentNotifyUrl saveKey endUser fsizeLimit] :as opts}]
-  (let [mac (apply create-mac opts)
+  (let [mac (create-mac opts)
         ^PutPolicy pp (PutPolicy. bucket)]
     (set-value! (.expires pp) expires)
     (set-value! (.scope pp) scope)
@@ -68,8 +68,8 @@
 (defn- callret->map [^CallRet ret]
   (when ret
     (let [m {:status (.getStatusCode ret) :response (.getResponse ret)}]
-      (when (.ok ret)
-        m
+      (if (.ok ret)
+        (assoc m :ok true)
         (if @throw-exception?
           (throw (ex-info "Server return error." m))
           (assoc m :exception (.getException ret)))))))
@@ -105,14 +105,21 @@
     extra))
 
 (defn upload
-  "Upload a file to qiniu storage by token and key."
+  "Upload a file to qiniu storage by token and key.
+  The file should can be convert into InputStream by
+     clojure.java.io/input-stream
+  function."
   [^String token ^String key file & opts]
   (let [^PutExtra extra (apply extra->instance opts)
         ^InputStream is (io/input-stream file)]
     (putret->map (IoApi/Put token key is extra))))
 
 (defn upload-bucket
-  "Upload a file to qiniu storage bucket."
+  "Upload a file to qiniu storage bucket.
+  The file should can be convert into InputStream by
+     clojure.java.io/input-stream
+  function.
+  "
   [bucket key file & opts]
   (apply upload (uptoken bucket) key file opts))
 
@@ -124,7 +131,7 @@
 (defn private-download-url
   "Create a download url for public file."
   [domain key & {:keys [expires access-key secret-key] :as opts}]
-  (let [mac (apply create-mac opts)
+  (let [mac (create-mac opts)
         ^String base-url (public-download-url domain key)
         ^GetPolicy gp (GetPolicy.)]
     (set-value! (.expires gp) expires)
@@ -159,15 +166,15 @@
     (set! (.key ep) key)
     ep))
 
-(defn- ^RSClient rs-client [ & opts]
-  (RSClient. (apply create-mac opts)))
+(defn- ^RSClient rs-client [opts]
+  (RSClient. (create-mac opts)))
 
 (defn stat
   "Stat a file."
   [bucket key & opts]
   (if-not batch-mode
     (->
-     (apply rs-client opts)
+     (rs-client (apply hash-map opts))
      (.stat bucket key)
      (entry->map))
     (add-batch-entry :stat (create-entry-path bucket key))))
@@ -185,7 +192,7 @@
   [src-bucket src-key dst-bucket dst-key & opts]
   (if-not batch-mode
     (->
-     (apply rs-client opts)
+     (rs-client (apply hash-map opts))
      (.copy src-bucket src-key dst-bucket dst-key)
      (callret->map))
     (add-batch-entry :copy
@@ -196,7 +203,7 @@
   [src-bucket src-key dst-bucket dst-key & opts]
   (if-not batch-mode
     (->
-     (apply rs-client opts)
+     (rs-client (apply hash-map opts))
      (.move src-bucket src-key dst-bucket dst-key)
      (callret->map))
     (add-batch-entry :move
@@ -207,7 +214,7 @@
   [bucket key & opts]
   (if-not batch-mode
     (->
-     (apply rs-client opts)
+     (rs-client (apply hash-map opts))
      (.delete bucket key)
      (callret->map))
     (add-batch-entry :delete (create-entry-path bucket key))))
@@ -252,7 +259,7 @@
 (defn exec
   "Execute  batch operations.The entries must be the same type."
   [& {:keys [entries] :as opts}]
-  (-> (apply rs-client opts)
+  (-> (rs-client opts)
       (exec-batch (or entries batch-entries) @batch-op)
       (convert-batchret @batch-op)))
 
@@ -264,7 +271,7 @@
   "Get the picture's basic information,such as format,width,height and colorModel.
   http://developer.qiniu.com/docs/v6/sdk/java-sdk.html#fop-image-info"
   [url & opts]
-  (when-let [^ImageInfoRet ret (ImageInfo/call url (apply create-mac opts))]
+  (when-let [^ImageInfoRet ret (ImageInfo/call url (create-mac (apply hash-map opts)))]
     {:format (.format ret)
      :width (.width ret)
      :height (.height ret)
@@ -273,7 +280,7 @@
 (defn image-exif
   "Get the image's exif."
   [url & opts]
-  (when-let [^ExifRet ret (ImageExif/call url (apply create-mac opts))]
+  (when-let [^ExifRet ret (ImageExif/call url (create-mac (apply hash-map opts)))]
     (into {}
           (map (fn [[k ^ExifValueType v]]
                  [k (when v {:type (.type v) :value (.value v)})])
@@ -290,7 +297,7 @@
     (set-value! (.quality iv) quality)
     (set-value! (.format iv) format)
     (-> iv
-        (.call url (apply create-mac opts))
+        (.call url (create-mac opts))
         (callret->map))))
 
 (defn- listitem-map [^ListItem it]
@@ -306,7 +313,7 @@
   "List files in a bucket. Returns a lazy sequence of result files.
   http://developer.qiniu.com/docs/v6/sdk/java-sdk.html#rsf-listPrefix"
   [bucket prefix & {:keys [limit marker rsf-client] :or {limit 32 marker ""} :as opts}]
-  (let [rsf-client (or rsf-client (RSFClient. (apply create-mac opts)))]
+  (let [rsf-client (or rsf-client (RSFClient. (create-mac opts)))]
     (when-let [^ListPrefixRet ret (->
                                    rsf-client
                                    (.listPrifix bucket prefix marker limit))]
