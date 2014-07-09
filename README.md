@@ -2,6 +2,8 @@
 
 A Clojure library for qiniu.com storage that wraps [qiniu java-sdk](https://github.com/qiniu/java-sdk).
 
+![alt test coverage](https://raw.github.com/killme2008/clj.qiniu/master/coverage.png)
+
 ## Usage
 
 Leiningen dependency:
