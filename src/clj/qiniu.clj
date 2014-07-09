@@ -5,7 +5,11 @@
            [java.io InputStream File]
            [com.qiniu.api.io IoApi PutExtra PutRet]
            [com.qiniu.api.net CallRet]
-           [com.qiniu.api.auth.digest Mac])
+           [com.qiniu.api.fop ImageInfo ImageInfoRet
+            ImageExif ExifRet ExifValueType
+            ImageView]
+           [com.qiniu.api.auth.digest Mac]
+           [com.qiniu.api.rsf RSFClient ListPrefixRet ListItem])
   (:require [clojure.java.io :as io]))
 
 (defmacro ^:private set-value! [k v]
@@ -256,10 +260,58 @@
   `(binding [batch-entries (vector)]
      ~@body))
 
-(defn image-info [])
+(defn image-info
+  "Get the picture's basic information,such as format,width,height and colorModel.
+  http://developer.qiniu.com/docs/v6/sdk/java-sdk.html#fop-image-info"
+  [url & opts]
+  (when-let [^ImageInfoRet ret (ImageInfo/call url (apply create-mac opts))]
+    {:format (.format ret)
+     :width (.width ret)
+     :height (.height ret)
+     :colorModel (.colorModel ret)}))
 
-(defn image-exif [])
+(defn image-exif
+  "Get the image's exif."
+  [url & opts]
+  (when-let [^ExifRet ret (ImageExif/call url (apply create-mac opts))]
+    (into {}
+          (map (fn [[k ^ExifValueType v]]
+                 [k (when v {:type (.type v) :value (.value v)})])
+               (into {} (.result ret))))))
 
-(defn image-view [])
+(defn image-view
+  "Make a image thumbnail.
+  http://developer.qiniu.com/docs/v6/sdk/java-sdk.html#fop-image-view"
+  [url & {:keys [mode width height quality format] :or {format "png" quality 100 mode 1} :as opts}]
+  (let [^ImageView iv (ImageView.)]
+    (set-value! (.mode iv) mode)
+    (set-value! (.height iv) height)
+    (set-value! (.width iv) width)
+    (set-value! (.quality iv) quality)
+    (set-value! (.format iv) format)
+    (-> iv
+        (.call url (apply create-mac opts))
+        (callret->map))))
 
-(defn list-files [])
+(defn- listitem-map [^ListItem it]
+  (when it
+    {:key (.key it)
+     :hash (.hash it)
+     :fsize (.fsize it)
+     :putTime (.putTime it)
+     :mimeType (.mimeType it)
+     :endUser (.endUser it)}))
+
+(defn list-files
+  "List files in a bucket. Returns a lazy sequence of result files.
+  http://developer.qiniu.com/docs/v6/sdk/java-sdk.html#rsf-listPrefix"
+  [bucket prefix & {:keys [limit marker rsf-client] :or {limit 32 marker ""} :as opts}]
+  (let [rsf-client (or rsf-client (RSFClient. (apply create-mac opts)))]
+    (when-let [^ListPrefixRet ret (->
+                                   rsf-client
+                                   (.listPrifix bucket prefix marker limit))]
+      (let [^String marker (.marker ret)
+            results (.results ret)]
+        (concat
+         (map listitem-map results)
+         (lazy-seq (list-files bucket prefix :limit limit :rsf-client rsf-client :marker marker)))))))
