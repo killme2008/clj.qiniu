@@ -31,7 +31,7 @@ require it in your namespace:
 
 ```clojure
 (qiniu/uptoken bucket)
-(qiniu/uptoken
+(qiniu/uptoken bucket
 	:expires 3600
 	:scope scope
 	:callbackUrl "http://exmaple.com/callback"
