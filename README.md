@@ -31,18 +31,19 @@ require it in your namespace:
 
 ```clojure
 (qiniu/uptoken bucket)
-(qiniu/uptoken :expires 3600
-                     :scope scope
-					 :callbackUrl "http://exmaple.com/callback"
-					 :insertOnly 1
-					 :detectMime 1)
+(qiniu/uptoken
+	:expires 3600
+	:scope scope
+	:callbackUrl "http://exmaple.com/callback"
+	:insertOnly 1
+	:detectMime 1)
 ```
 
 更多选项直接看源码吧。
 
 ### 上传文件
 
-`file`可以是任何可以通过`clojure.java.io/input-stream`转成输入流的对象，比如 File 对象、URL、Resource等：
+`file`参数可以是任何可以通过`clojure.java.io/input-stream`转成输入流的对象，比如 File 对象、URL、Java Resource等：
 
 ```clojure
 (qiniu/upload-bucket bucket key file)
@@ -157,15 +158,17 @@ require it in your namespace:
 (image-view url :width 100 :height 100 :mode 1 :format "png")
 ```
 
-返回结果的`:response`值就是缩率图的二进制数据，可以存储为文件或者输出到网页。
+返回结果的`:response`值就是缩略图的二进制数据，可以存储为文件或者输出到网页。
 
 ### 批量获取 Bucket 下的文件
 
-根据前缀`prefix`获取匹配的文件列表，`bucket-file-seq`会返回一个`LazySeq`：
+根据前缀`prefix`获取 Bucket 内匹配的文件列表，`bucket-file-seq`会返回一个`LazySeq`：
 
 ```clojure
 (bucket-file-seq  bucket "<prefix>" :limit 32)
 ```
+
+limit设定批量查询大小，默认 32。
 
 ### Bucket 统计
 查询单月统计：
