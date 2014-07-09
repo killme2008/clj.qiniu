@@ -7,7 +7,7 @@ A Clojure library for qiniu.com storage that wraps [qiniu java-sdk](https://gith
 Leiningen dependency:
 
 ```clojure
-	[clj.qiniu "0.1.0-SNAPSHOT]
+	[clj.qiniu "0.1.0-RC1]
 ```
 
 ## License

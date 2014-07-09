@@ -9,8 +9,9 @@
             ImageExif ExifRet ExifValueType
             ImageView]
            [com.qiniu.api.auth.digest Mac]
-           [com.qiniu.api.rsf RSFClient ListPrefixRet ListItem])
-  (:require [clojure.java.io :as io]))
+           [com.qiniu.api.rsf RSFClient ListPrefixRet ListItem RSFEofException])
+  (:require [clojure.java.io :as io]
+            [clj-http.client :as http]))
 
 (defmacro ^:private set-value! [k v]
   `(when ~v
@@ -24,7 +25,7 @@
   (let [name (with-meta name {:tag ThreadLocal})]
     `(def ~name
        (proxy [ThreadLocal clojure.lang.IDeref] []
-         (initialValue [] true)
+         (initialValue [] nil)
          (deref [] (.get ~(with-meta 'this {:tag `ThreadLocal})))))))
 
 (defonce ^:private throw-exception? (atom false))
@@ -150,11 +151,11 @@
 
 (defn- add-batch-entry [op v]
   (set-batch-op op)
-  (conj batch-entries v))
+  (swap! batch-entries conj v))
 
 (defn- entry->map [^Entry e]
   (merge (callret->map e)
-         (when e
+         (when (and e (.ok e))
            {:fsize (.getFsize e)
             :hash (.getHash e)
             :mimeType (.getMimeType e)
@@ -209,7 +210,7 @@
     (add-batch-entry :move
                      (create-entry-pair src-bucket src-key dst-bucket dst-key))))
 
-(defn Delete
+(defn delete
   "Delete a file."
   [bucket key & opts]
   (if-not batch-mode
@@ -251,21 +252,29 @@
   (throw (ex-info (str "Unknown op:" op) {:op op})))
 
 (defn- convert-batchret [ret op]
-  (when ret
-    (if (= op :stat)
-      (map entry->map (.results ^BatchStatRet ret))
-      (map callret->map (.results ^BatchCallRet ret)))))
+  (merge (callret->map ret)
+         (when (and ret (.ok ret))
+           {:results
+            (if (= op :stat)
+              (map entry->map (.results ^BatchStatRet ret))
+              (map callret->map (.results ^BatchCallRet ret)))})))
 
 (defn exec
   "Execute  batch operations.The entries must be the same type."
   [& {:keys [entries] :as opts}]
-  (-> (rs-client opts)
-      (exec-batch (or entries batch-entries) @batch-op)
-      (convert-batchret @batch-op)))
+  (if batch-mode
+    (-> (rs-client opts)
+        (exec-batch (or entries @batch-entries) @batch-op)
+        (convert-batchret @batch-op))
+    (throw (ex-info "exec must be invoked in with-batch body."))))
 
 (defmacro with-batch [ & body]
-  `(binding [batch-entries (vector)]
-     ~@body))
+  `(binding [batch-entries (atom [])
+             batch-mode true]
+     (try
+       ~@body
+       (finally
+         (.remove batch-op)))))
 
 (defn image-info
   "Get the picture's basic information,such as format,width,height and colorModel.
@@ -281,15 +290,18 @@
   "Get the image's exif."
   [url & opts]
   (when-let [^ExifRet ret (ImageExif/call url (create-mac (apply hash-map opts)))]
-    (into {}
-          (map (fn [[k ^ExifValueType v]]
-                 [k (when v {:type (.type v) :value (.value v)})])
-               (into {} (.result ret))))))
+    (merge (callret->map ret)
+           (when (and ret (.ok ret))
+             {:exif
+              (into {}
+                    (map (fn [[k ^ExifValueType v]]
+                           [k (when v {:type (.type v) :value (.value v)})])
+                         (into {} (.result ret))))}))))
 
 (defn image-view
   "Make a image thumbnail.
   http://developer.qiniu.com/docs/v6/sdk/java-sdk.html#fop-image-view"
-  [url & {:keys [mode width height quality format] :or {format "png" quality 100 mode 1} :as opts}]
+  [url & {:keys [mode width height quality format] :or {format "png" quality 80 width 100 height 100 mode 1} :as opts}]
   (let [^ImageView iv (ImageView.)]
     (set-value! (.mode iv) mode)
     (set-value! (.height iv) height)
@@ -309,9 +321,8 @@
      :mimeType (.mimeType it)
      :endUser (.endUser it)}))
 
-(defn list-files
-  "List files in a bucket. Returns a lazy sequence of result files.
-  http://developer.qiniu.com/docs/v6/sdk/java-sdk.html#rsf-listPrefix"
+(defn bucket-file-seq
+  "List files in a bucket. Returns a lazy sequence of result files."
   [bucket prefix & {:keys [limit marker rsf-client] :or {limit 32 marker ""} :as opts}]
   (let [rsf-client (or rsf-client (RSFClient. (create-mac opts)))]
     (when-let [^ListPrefixRet ret (->
@@ -321,4 +332,66 @@
             results (.results ret)]
         (concat
          (map listitem-map results)
-         (lazy-seq (list-files bucket prefix :limit limit :rsf-client rsf-client :marker marker)))))))
+         (if (.ok ret)
+           (lazy-seq (bucket-file-seq bucket prefix :limit limit :rsf-client rsf-client :marker marker))
+           (when-not (instance? RSFEofException (.exception ret))
+             (throw (ex-info "List bucket files fails." {:exception (.exception ret)})))))))))
+
+(defonce valid-stat-items #{"apicall" "transfer" "space"})
+(defonce qiniu-api-url "http://api.qiniu.com")
+(def stats-grain "day")
+(defn- make-authorization [^String path]
+  (let [^Mac mac (create-mac nil)]
+    (str "QBox " (.sign mac (.getBytes path)))))
+
+(defn bucket-stats
+  "Get the bucket statistics info."
+  [bucket item from to & opts]
+  (when-not (valid-stat-items item)
+    (throw (ex-info "Invalid stats item" {:items valid-stat-items})))
+  (let [path (str "/stat/select/" item "?bucket=" bucket "&from=" from "&to=" to "&p=" stats-grain)
+        path (if (seq opts)
+               (str path "&"
+                    (clojure.string/join "&"
+                                         (map #(clojure.string/join "=" %)
+                                              (apply hash-map (map clojure.core/name opts)))))
+               path)]
+    (let [{:keys [status body]} (http/get (str qiniu-api-url path)
+                                          {:socket-timeout 10000
+                                           :conn-timeout 5000
+                                           :throw-exceptions false
+                                           :as :json
+                                           :client-params
+                                           {"http.useragent" Config/USER_AGENT}
+                                           :headers
+                                           {"Authorization"
+                                            (make-authorization
+                                             (str path "\n"))}})]
+      (if (= status 200)
+        {:ok true
+         :results (zipmap (:time body)
+                          (:data body))}
+        (if @throw-exception?
+          (throw (ex-info "Query file statstics data faild." {:body body}))
+          {:ok false :response body :status status})))))
+
+
+(defn bucket-monthly-stats
+  "Get the bucket statstics info by month."
+  [bucket month]
+  (let [path (str "/stat/info?bucket=" bucket "&month=" month)]
+    (let [{:keys [status body]} (http/get (str qiniu-api-url path)
+                                            {:socket-timeout 10000
+                                             :conn-timeout 5000
+                                             :throw-exceptions false
+                                             :as :json
+                                             :client-params {"http.useragent" Config/USER_AGENT}
+                                             :headers {"Authorization"
+                                                       (make-authorization
+                                                        (str path "\n"))}})]
+      (if (= status 200)
+        {:ok true
+         :results body}
+        (if @throw-exception?
+          (throw (ex-info "Query file statstics data faild." {:body body}))
+          {:ok false :response body :status status})))))
