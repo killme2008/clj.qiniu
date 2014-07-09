@@ -181,8 +181,8 @@ limit设定批量查询大小，默认 32。
 
 ```clojure
 (bucket-stats bucket "space" "20140701" "20140710")
-(bucket-stats bucket "transfer "20140701" "20140710")
-(bucket-stats bucket "apicall "20140701" "20140710")
+(bucket-stats bucket "transfer" "20140701" "20140710")
+(bucket-stats bucket "apicall" "20140701" "20140710")
 ```
 
 ## License
