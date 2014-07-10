@@ -9,7 +9,7 @@ A Clojure library for qiniu.com storage that wraps [qiniu java-sdk](https://gith
 Leiningen dependency:
 
 ```clojure
-	[clj.qiniu "0.1.0-RC3"]
+	[clj.qiniu "0.1.0-RC4"]
 ```
 
 require it in your namespace:
