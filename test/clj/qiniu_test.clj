@@ -208,3 +208,9 @@
     (let [ret (bucket-monthly-stats test-bucket "201407")]
       (is (:ok ret))
       (is (:results ret)))))
+
+(deftest test-create-delete-bucket
+  (testing "create and delete bucket"
+    (is (:ok (mk-bucket "test")))
+    (is (:ok (publish-bucket "test" "clj-qiniu3.qiniudn.com")))
+    (is (:ok (remove-bucket "test")))))

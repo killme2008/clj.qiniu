@@ -9,7 +9,7 @@ A Clojure library for qiniu.com storage that wraps [qiniu java-sdk](https://gith
 Leiningen dependency:
 
 ```clojure
-	[clj.qiniu "0.1.0-RC2"]
+	[clj.qiniu "0.1.0-RC3"]
 ```
 
 require it in your namespace:
@@ -186,6 +186,24 @@ limit设定批量查询大小，默认 32。
 (bucket-stats bucket "transfer" "20140701" "20140710")
 (bucket-stats bucket "apicall" "20140701" "20140710")
 ```
+
+### Bucket 管理
+
+创建 Bucket:
+
+创建和删除 bucket:
+
+```clojure
+(mk-bucket bucket)
+(remove-bucket bucket)
+```
+
+发布到开放域名:
+
+```clojure
+(publish-bucket bucket "http://example.qiniudn.com")
+```
+
 
 ## License
 

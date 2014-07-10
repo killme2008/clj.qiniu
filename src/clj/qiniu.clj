@@ -7,6 +7,7 @@
            [com.qiniu.api.rs PutPolicy URLUtils GetPolicy RSClient Entry
             EntryPath EntryPathPair BatchCallRet BatchStatRet]
            [java.io InputStream File]
+           [org.apache.commons.codec.binary Base64]
            [com.qiniu.api.io IoApi PutExtra PutRet]
            [com.qiniu.api.net CallRet]
            [com.qiniu.api.fop ImageInfo ImageInfoRet
@@ -352,18 +353,20 @@
   (let [^Mac mac (create-mac nil)]
     (str "QBox " (.sign mac (.getBytes path)))))
 
-(defn- http-request [path f]
-  (let [{:keys [status body]} (http/get (str qiniu-api-url path)
-                                        {:socket-timeout 10000
-                                         :conn-timeout 5000
-                                         :throw-exceptions false
-                                         :as :json
-                                         :client-params
-                                         {"http.useragent" Config/USER_AGENT}
-                                         :headers
-                                         {"Authorization"
-                                          (make-authorization
-                                           (str path "\n"))}})]
+(defn- http-request [path f & {:keys [method domain] :or {method :get domain qiniu-api-url}}]
+  (let [{:keys [status body]} (http/request
+                               {:socket-timeout 10000
+                                :conn-timeout 5000
+                                :method method
+                                :url (str domain path)
+                                :throw-exceptions false
+                                :as :json
+                                :client-params
+                                {"http.useragent" Config/USER_AGENT}
+                                :headers
+                                {"Authorization"
+                                 (make-authorization
+                                  (str path "\n"))}})]
     (if (= status 200)
       {:ok true
        :results (f body)}
@@ -393,3 +396,66 @@
   [bucket month]
   (let [path (str "/stat/info?bucket=" bucket "&month=" month)]
     (http-request path identity)))
+
+
+;;bucket management
+(defonce rs-api-domain "http://rs.qiniu.com")
+
+(defn mk-bucket
+  "Create a bucket"
+  [bucket]
+  (http-request  (str "/mkbucket/" bucket) identity
+                 :method :post
+                 :domain rs-api-domain))
+
+(defn remove-bucket
+  "Delete a bucket"
+  [bucket]
+  (http-request (str "/drop/" bucket) identity
+                :method :post
+                :domain rs-api-domain))
+
+(defn- encode-base64ex
+  [src]
+  (let [b64 (Base64/encodeBase64 src)
+        length (alength ^bytes b64)]
+    (doseq [i (range 0 length)]
+      (do
+        (if (= 47 (aget b64 i))
+          (aset-byte b64 i 95))
+        (if (= 43 (aget b64 i))
+          (aset-byte b64 i 45))))
+    b64))
+
+(defn- url-safe-encode-bytes
+  [^bytes src]
+  (let [length (alength src)]
+    (if (zero? (rem (alength src) 3))
+      (encode-base64ex src)
+      (let [^bytes src (encode-base64ex src)
+            length (alength src)
+            remainder (rem length 4)]
+        (if (zero? remainder)
+          src
+          (let [pad (- 4 remainder)
+                padded-bytes (byte-array (+ length pad))]
+            (System/arraycopy src 0 padded-bytes 0 length)
+            (aset-byte padded-bytes length 61)
+            (if (> pad 1)
+              (aset-byte padded-bytes (inc length) 61))
+            padded-bytes))))))
+
+
+(defn publish-bucket
+  "Publish bucket as public domain."
+  [bucket domain]
+  (http-request (str "/publish/" (String. ^bytes (url-safe-encode-bytes (.getBytes ^String domain)))  "/from/" bucket) identity
+                :method :post
+                :domain rs-api-domain))
+
+(defn list-buckets
+  "List all buckets"
+  []
+  (http-request "/buckets" identity
+                :method :post
+                :domain rs-api-domain))
