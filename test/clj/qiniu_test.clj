@@ -139,6 +139,12 @@
            s)))))
 
 (deftest test-batch
+  (testing "batch different op"
+    (is (thrown? RuntimeException
+                 (with-batch
+                   (stat test-bucket "cloud_code_1.png")
+                   (delete test-bucket "clojure.png")
+                   (exec)))))
   (testing "batch stat"
     (let [ret (with-batch
                 (stat test-bucket "cloud_code_1.png")

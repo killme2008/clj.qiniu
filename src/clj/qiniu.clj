@@ -1,4 +1,8 @@
 (ns clj.qiniu
+  "Clojure sdk for qiniu storage."
+  {:author "dennis zhuang"
+   :email "killme2008@gmail.com"
+   :home "https://github.com/killme2008/clj.qiniu"}
   (:import [com.qiniu.api.config Config]
            [com.qiniu.api.rs PutPolicy URLUtils GetPolicy RSClient Entry
             EntryPath EntryPathPair BatchCallRet BatchStatRet]
@@ -263,9 +267,13 @@
   "Execute  batch operations.The entries must be the same type."
   [& {:keys [entries] :as opts}]
   (if batch-mode
-    (-> (rs-client opts)
-        (exec-batch (or entries @batch-entries) @batch-op)
-        (convert-batchret @batch-op))
+    (try
+      (-> (rs-client opts)
+          (exec-batch (or entries @batch-entries) @batch-op)
+          (convert-batchret @batch-op))
+      (finally
+        (reset! batch-entries [])
+        (.remove batch-op)))
     (throw (ex-info "exec must be invoked in with-batch body."))))
 
 (defmacro with-batch [ & body]
@@ -312,7 +320,7 @@
         (.call url (create-mac opts))
         (callret->map))))
 
-(defn- listitem-map [^ListItem it]
+(defn- listitem->map [^ListItem it]
   (when it
     {:key (.key it)
      :hash (.hash it)
@@ -331,7 +339,7 @@
       (let [^String marker (.marker ret)
             results (.results ret)]
         (concat
-         (map listitem-map results)
+         (map listitem->map results)
          (if (.ok ret)
            (lazy-seq (bucket-file-seq bucket prefix :limit limit :rsf-client rsf-client :marker marker))
            (when-not (instance? RSFEofException (.exception ret))
@@ -343,6 +351,25 @@
 (defn- make-authorization [^String path]
   (let [^Mac mac (create-mac nil)]
     (str "QBox " (.sign mac (.getBytes path)))))
+
+(defn- http-request [path f]
+  (let [{:keys [status body]} (http/get (str qiniu-api-url path)
+                                        {:socket-timeout 10000
+                                         :conn-timeout 5000
+                                         :throw-exceptions false
+                                         :as :json
+                                         :client-params
+                                         {"http.useragent" Config/USER_AGENT}
+                                         :headers
+                                         {"Authorization"
+                                          (make-authorization
+                                           (str path "\n"))}})]
+    (if (= status 200)
+      {:ok true
+       :results (f body)}
+      (if @throw-exception?
+        (throw (ex-info "Query file statstics data faild." {:body body}))
+        {:ok false :response body :status status}))))
 
 (defn bucket-stats
   "Get the bucket statistics info."
@@ -356,42 +383,13 @@
                                          (map #(clojure.string/join "=" %)
                                               (apply hash-map (map clojure.core/name opts)))))
                path)]
-    (let [{:keys [status body]} (http/get (str qiniu-api-url path)
-                                          {:socket-timeout 10000
-                                           :conn-timeout 5000
-                                           :throw-exceptions false
-                                           :as :json
-                                           :client-params
-                                           {"http.useragent" Config/USER_AGENT}
-                                           :headers
-                                           {"Authorization"
-                                            (make-authorization
-                                             (str path "\n"))}})]
-      (if (= status 200)
-        {:ok true
-         :results (zipmap (:time body)
-                          (:data body))}
-        (if @throw-exception?
-          (throw (ex-info "Query file statstics data faild." {:body body}))
-          {:ok false :response body :status status})))))
+    (http-request path (fn [body]
+                         (zipmap (:time body)
+                                 (:data body))))))
 
 
 (defn bucket-monthly-stats
   "Get the bucket statstics info by month."
   [bucket month]
   (let [path (str "/stat/info?bucket=" bucket "&month=" month)]
-    (let [{:keys [status body]} (http/get (str qiniu-api-url path)
-                                            {:socket-timeout 10000
-                                             :conn-timeout 5000
-                                             :throw-exceptions false
-                                             :as :json
-                                             :client-params {"http.useragent" Config/USER_AGENT}
-                                             :headers {"Authorization"
-                                                       (make-authorization
-                                                        (str path "\n"))}})]
-      (if (= status 200)
-        {:ok true
-         :results body}
-        (if @throw-exception?
-          (throw (ex-info "Query file statstics data faild." {:body body}))
-          {:ok false :response body :status status})))))
+    (http-request path identity)))
