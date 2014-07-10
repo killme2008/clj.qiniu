@@ -33,7 +33,7 @@
          (initialValue [] nil)
          (deref [] (.get ~(with-meta 'this {:tag `ThreadLocal})))))))
 
-(defonce ^:private throw-exception? (atom false))
+(defonce ^:private throw-exception-atom? (atom false))
 
 (defn set-config!
   "Set global config for qiniu sdk."
@@ -43,7 +43,7 @@
     (set-value! Config/SECRET_KEY secret-key)
     (set-value! Config/USER_AGENT user-agent)
     (when throw-exception?
-      (reset! throw-exception? throw-exception?))
+      (reset! throw-exception-atom? throw-exception?))
     Config))
 
 (defn- ^Mac create-mac [{:keys [access-key secret-key]}]
@@ -76,7 +76,7 @@
     (let [m {:status (.getStatusCode ret) :response (.getResponse ret)}]
       (if (.ok ret)
         (assoc m :ok true)
-        (if @throw-exception?
+        (if @throw-exception-atom?
           (throw (ex-info "Server return error." m))
           (assoc m :exception (.getException ret)))))))
 
@@ -370,7 +370,7 @@
     (if (= status 200)
       {:ok true
        :results (f body)}
-      (if @throw-exception?
+      (if @throw-exception-atom?
         (throw (ex-info "Query file statstics data faild." {:body body}))
         {:ok false :response body :status status}))))
 
