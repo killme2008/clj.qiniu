@@ -51,20 +51,20 @@
 
 (defn uptoken
   "Create a uptoken for uploading file. see http://developer.qiniu.com/docs/v6/sdk/java-sdk.html#make-uptoken"
-  [bucket & {:keys [access-key secret-key expires scope callbackUrl asyncOps returnBody escape detectMime insertOnly mimeLimit persistentOps persistentPipeline persistentNotifyUrl saveKey endUser fsizeLimit] :as opts}]
+  [bucket & {:keys [access-key secret-key expires scope callbackUrl callbackBody asyncOps returnUrl returnBody detectMime insertOnly mimeLimit persistentOps persistentNotifyUrl saveKey endUser fsizeLimit] :as opts}]
   (let [mac (create-mac opts)
         ^PutPolicy pp (PutPolicy. bucket)]
     (set-value! (.expires pp) expires)
     (set-value! (.scope pp) scope)
     (set-value! (.callbackUrl pp) callbackUrl)
+    (set-value! (.callbackBody pp) callbackBody)
     (set-value! (.asyncOps pp) asyncOps)
+    (set-value! (.returnUrl pp) returnUrl)
     (set-value! (.returnBody pp) returnBody)
-    (set-value! (.escape pp) escape)
     (set-value! (.detectMime pp) detectMime)
     (set-value! (.insertOnly pp) insertOnly)
     (set-value! (.mimeLimit pp) mimeLimit)
     (set-value! (.persistentOps pp) persistentOps)
-    (set-value! (.persistentPipeline pp) persistentPipeline)
     (set-value! (.persistentNotifyUrl pp) persistentNotifyUrl)
     (set-value! (.saveKey pp) saveKey)
     (set-value! (.endUser pp) endUser)
