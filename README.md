@@ -204,6 +204,9 @@ limit设定批量查询大小，默认 32。
 (publish-bucket bucket "http://example.qiniudn.com")
 ```
 
+## 贡献者
+
+* [xhh](https://github.com/xhh)
 
 ## License
 
