@@ -214,3 +214,12 @@
     (is (:ok (mk-bucket "test")))
     (is (:ok (publish-bucket "test" "clj-qiniu3.qiniudn.com")))
     (is (:ok (remove-bucket "test")))))
+
+(deftest test-pfop
+  (testing "pfop a video file."
+    (let [resp (pfop "clj-qiniu"  (java.net.URLEncoder/encode "viva la vida.mp3")
+                    "avthumb/m3u8/segtime/10/preset/audio_32k"
+                    "http://cn-stg1.avoscloud.com/1.1/qiniu/persistentNotify"
+                    :pipeline "dennis")]
+      (is (:ok resp))
+      (println (prefop-status (:results resp))))))

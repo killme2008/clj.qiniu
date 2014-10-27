@@ -371,7 +371,7 @@
       {:ok true
        :results (f body)}
       (if @throw-exception-atom?
-        (throw (ex-info "Query file statstics data faild." {:body body}))
+        (throw (ex-info "Requst failed." {:body body}))
         {:ok false :response body :status status}))))
 
 (defn bucket-stats
@@ -427,7 +427,7 @@
           (aset-byte b64 i 45))))
     b64))
 
-(defn- url-safe-encode-bytes
+(defn url-safe-encode-bytes
   [^bytes src]
   (let [length (alength src)]
     (if (zero? (rem (alength src) 3))
@@ -459,3 +459,24 @@
   (http-request "/buckets" identity
                 :method :post
                 :domain rs-api-domain))
+
+(defn pfop
+  "Trigger fops for an exists resource in bucket.Returns a persistentId.
+   see http://developer.qiniu.com/docs/v6/api/reference/fop/pfop/pfop.html"
+   [bucket key fops notifyURL & opts]
+  (let [path (format "/pfop/?bucket=%s&key=%s&fops=%s" bucket key fops)
+        path (if (seq opts)
+               (str path "&"
+                    (clojure.string/join "&"
+                                         (map #(clojure.string/join "=" %)
+                                              (apply hash-map (map clojure.core/name opts)))))
+               path)]
+    (http-request path (fn [body]
+                         (:persistentId body))
+                  :method :post)))
+
+(defn prefop-status
+  "Retrieve pfop status.
+   See http://developer.qiniu.com/docs/v6/api/reference/fop/pfop/prefop.html"
+  [id]
+  (http-request (str "/status/get/prefop?id=" id) identity))

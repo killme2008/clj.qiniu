@@ -9,7 +9,7 @@ A Clojure library for qiniu.com storage that wraps [qiniu java-sdk](https://gith
 Leiningen dependency:
 
 ```clojure
-	[clj.qiniu "0.1.0-RC4"]
+	[clj.qiniu "0.1.1-RC"]
 ```
 
 require it in your namespace:
@@ -202,6 +202,24 @@ limit设定批量查询大小，默认 32。
 
 ```clojure
 (publish-bucket bucket "http://example.qiniudn.com")
+```
+
+### 持久化处理（音频视频）
+
+如果需要对已保存在空间中的资源进行云处理并将结果[持久化](http://developer.qiniu.com/docs/v6/api/reference/fop/pfop/pfop.html#pfop-notification)，可以使用`pfop`方法：
+
+```clj
+(pfop "clj-qiniu"  (java.net.URLEncoder/encode "viva la vida.mp3")
+                    "avthumb/m3u8/segtime/10/preset/audio_32k"
+                    "http://example.com/persistentNotify"
+                    :pipeline "dennis")
+;; {:ok true, :results "544df4f97823de406816e673"}
+```
+
+返回的`results`就是`persistentId`，可以用来查询持久化处理状态：
+
+```
+(prefop-status "544df4f97823de406816e673")
 ```
 
 ## 贡献者
