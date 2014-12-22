@@ -464,7 +464,7 @@
   "Trigger fops for an exists resource in bucket.Returns a persistentId.
    see http://developer.qiniu.com/docs/v6/api/reference/fop/pfop/pfop.html"
    [bucket key fops notifyURL & opts]
-  (let [path (format "/pfop/?bucket=%s&key=%s&fops=%s" bucket key fops)
+  (let [path (format "/pfop/?bucket=%s&key=%s&fops=%s&notifyURL=%s" bucket key fops notifyURL)
         path (if (seq opts)
                (str path "&"
                     (clojure.string/join "&"
