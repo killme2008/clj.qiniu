@@ -349,29 +349,32 @@
 (defonce valid-stat-items #{"apicall" "transfer" "space"})
 (defonce qiniu-api-url "http://api.qiniu.com")
 (def stats-grain "day")
-(defn- make-authorization [^String path]
+
+(defn make-authorization [^String path]
   (let [^Mac mac (create-mac nil)]
     (str "QBox " (.sign mac (.getBytes path)))))
 
-(defn- http-request [path f & {:keys [method domain] :or {method :get domain qiniu-api-url}}]
-  (let [{:keys [status body]} (http/request
-                               {:socket-timeout 10000
-                                :conn-timeout 5000
-                                :method method
-                                :url (str domain path)
-                                :throw-exceptions false
-                                :as :json
-                                :client-params
-                                {"http.useragent" Config/USER_AGENT}
-                                :headers
-                                {"Authorization"
-                                 (make-authorization
-                                  (str path "\n"))}})]
+(defn http-request
+  "Make authorized request to qiniu api."
+  [path f & {:keys [domain] :or {domain qiniu-api-url} :as opts}]
+  (let [default {:socket-timeout 10000
+                 :conn-timeout 5000
+                 :method :get
+                 :url (str domain path)
+                 :throw-exceptions false
+                 :as :json
+                 :client-params
+                 {"http.useragent" Config/USER_AGENT}
+                 :headers
+                 {"Authorization"
+                  (make-authorization
+                   (str path "\n"))}}
+        {:keys [status body]} (http/request (merge default opts))]
     (if (= status 200)
       {:ok true
        :results (f body)}
       (if @throw-exception-atom?
-        (throw (ex-info "Requst failed." {:body body}))
+        (throw (ex-info "Request failed." {:body body}))
         {:ok false :response body :status status}))))
 
 (defn bucket-stats
@@ -397,6 +400,10 @@
   (let [path (str "/stat/info?bucket=" bucket "&month=" month)]
     (http-request path identity)))
 
+(defn domain-list
+  "Get CDN domains of bucket"
+  [bucket]
+  (http-request (str "/v6/domain/list?" "tbl=" bucket) identity))
 
 ;;bucket management
 (defonce rs-api-domain "http://rs.qiniu.com")
