@@ -37,8 +37,12 @@
 
 (defn set-config!
   "Set global config for qiniu sdk."
-  [& {:keys [access-key secret-key user-agent throw-exception?] :or {user-agent "Clojure/qiniu sdk"}}]
+  [& {:keys [access-key secret-key user-agent throw-exception?
+             up-host
+             ] :or {user-agent "Clojure/qiniu sdk 1.0"
+                    up-host "http://up.qiniu.com"}}]
   (do
+    (set-value! Config/UP_HOST up-host)
     (set-value! Config/ACCESS_KEY access-key)
     (set-value! Config/SECRET_KEY secret-key)
     (set-value! Config/USER_AGENT user-agent)

@@ -31,7 +31,7 @@
       (is (= config Config))
       (is (= test-key Config/ACCESS_KEY))
       (is (= test-secret Config/SECRET_KEY))
-      (is (= "Clojure/qiniu sdk" Config/USER_AGENT)))))
+      (is (= "Clojure/qiniu sdk 1.0" Config/USER_AGENT)))))
 
 (deftest test-uptoken
   (testing "uptoken"
