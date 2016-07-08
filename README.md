@@ -9,7 +9,7 @@ A Clojure library for qiniu.com storage that wraps [qiniu java-sdk](https://gith
 Leiningen dependency:
 
 ```clojure
-	[clj.qiniu "0.1.1"]
+	[clj.qiniu "0.1.2"]
 ```
 
 require it in your namespace:
@@ -222,9 +222,16 @@ limit设定批量查询大小，默认 32。
 (prefop-status "544df4f97823de406816e673")
 ```
 
+### 获取 CDN 域名
+
+```clj
+(domain-list bucket)
+```
+
 ## 贡献者
 
 * [xhh](https://github.com/xhh)
+* [juvenn](https://github.com/juvenn)
 
 ## License
 
