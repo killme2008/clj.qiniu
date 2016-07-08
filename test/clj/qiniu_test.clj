@@ -215,6 +215,12 @@
     (is (:ok (publish-bucket "test" "clj-qiniu3.qiniudn.com")))
     (is (:ok (remove-bucket "test")))))
 
+(deftest test-domain-list
+  (testing "get domain list of bucket"
+    (let [ret (domain-list test-bucket)]
+      (is (:ok ret))
+      (is (:results ret)))))
+
 (deftest test-pfop
   (testing "pfop a video file."
     (let [resp (pfop "clj-qiniu"  (java.net.URLEncoder/encode "viva la vida.mp3")
