@@ -360,10 +360,12 @@
 
 (defn http-request
   "Make authorized request to qiniu api."
-  [path f & {:keys [domain] :or {domain qiniu-api-url} :as opts}]
+  [path f & {:keys [domain body] :or {domain qiniu-api-url} :as opts}]
   (let [default {:socket-timeout 10000
                  :conn-timeout 5000
+                 :content-type :json
                  :method :get
+                 :form-params body
                  :url (str domain path)
                  :throw-exceptions false
                  :as :json
@@ -456,6 +458,26 @@
               (aset-byte padded-bytes (inc length) 61))
             padded-bytes))))))
 
+(defn private-bucket
+  "Set a bucket to be private."
+  ([bucket]
+   (private-bucket bucket true))
+  ([bucket private?]
+   (http-request (format "/private?bucket=%s&private=%d"
+                         bucket
+                         (if private?
+                           1
+                           0))
+                 identity
+                 :method :post
+                 :domain "https://uc.qbox.me")))
+
+(defn refresh-bucket-cdn [urls dirs]
+  (http-request "/v2/tune/refresh" identity
+                :domain "http://fusion.qiniuapi.com"
+                :method :post
+                :body {:urls urls
+                       :dirs dirs}))
 
 (defn publish-bucket
   "Publish bucket as public domain."
@@ -474,7 +496,7 @@
 (defn pfop
   "Trigger fops for an exists resource in bucket.Returns a persistentId.
    see http://developer.qiniu.com/docs/v6/api/reference/fop/pfop/pfop.html"
-   [bucket key fops notifyURL & opts]
+  [bucket key fops notifyURL & opts]
   (let [path (format "/pfop/?bucket=%s&key=%s&fops=%s&notifyURL=%s" bucket key fops notifyURL)
         path (if (seq opts)
                (str path "&"
