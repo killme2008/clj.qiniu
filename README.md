@@ -9,7 +9,7 @@ A Clojure library for qiniu.com storage that wraps [qiniu java-sdk](https://gith
 Leiningen dependency:
 
 ```clojure
-	[clj.qiniu "0.1.2"]
+	[clj.qiniu "0.2.0"]
 ```
 
 require it in your namespace:
@@ -204,6 +204,13 @@ limit设定批量查询大小，默认 32。
 (publish-bucket bucket "http://example.qiniudn.com")
 ```
 
+将 bucket 私有或者设置为公开：
+
+```clojure
+(private-bucket bucket true)
+(private-bucket bucket false)
+```
+
 ### 持久化处理（音频视频）
 
 如果需要对已保存在空间中的资源进行云处理并将结果[持久化](http://developer.qiniu.com/docs/v6/api/reference/fop/pfop/pfop.html#pfop-notification)，可以使用`pfop`方法：
@@ -224,8 +231,14 @@ limit设定批量查询大小，默认 32。
 
 ### 获取 CDN 域名
 
-```clj
+```clojure
 (domain-list bucket)
+```
+
+刷新 CDN 缓存（可能需要申请相关权限）：
+
+```clojure
+(refresh-bucket-cdn urls dirs)
 ```
 
 ## 贡献者
