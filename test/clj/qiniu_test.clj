@@ -221,6 +221,16 @@
       (is (:ok ret))
       (is (:results ret)))))
 
+(deftest test-bucket-info
+  (testing "get bucket info"
+    (let [ret (bucket-info test-bucket)]
+      (is (:ok ret))
+      (is (:results ret))))
+  (testing "get non-existent bucket info"
+    (let [ret (bucket-info "non-existent-bucket")]
+      (is (= false (:ok ret)))
+      (is (:response ret)))))
+
 (deftest test-pfop
   (testing "pfop a video file."
     (let [resp (pfop "clj-qiniu"  (java.net.URLEncoder/encode "viva la vida.mp3")

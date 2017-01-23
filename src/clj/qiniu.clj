@@ -458,6 +458,14 @@
               (aset-byte padded-bytes (inc length) 61))
             padded-bytes))))))
 
+(defn bucket-info
+  "Get bucket info."
+  ([bucket]
+   (http-request (format "/v2/bucketInfo?bucket=%s" bucket)
+                 identity
+                 :method :post
+                 :domain "https://uc.qbox.me")))
+
 (defn private-bucket
   "Set a bucket to be private."
   ([bucket]
