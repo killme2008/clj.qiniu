@@ -241,6 +241,26 @@ limit设定批量查询大小，默认 32。
 (refresh-bucket-cdn urls dirs)
 ```
 
+绑定自定义域名（可能要申请相关权限）：
+
+```clojure
+(set-custom-domain! domain bucket cret key platform geo protocol)
+;;; geo "chain" or "global"
+;;; protocol "http" or "https"
+```
+
+上下线自定义域名：
+```clojure
+(online-custom-domain domain)
+(offline-custom-domain domain)
+```
+
+删除自定义域名：
+```clojure
+(delete-custom-domain domain)
+```
+
+
 ## 贡献者
 
 * [xhh](https://github.com/xhh)
