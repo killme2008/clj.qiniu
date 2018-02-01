@@ -553,7 +553,7 @@
                 :method :post
                 :domain "http://fusion.qiniuapi.com"))
 
-(defn delete-custom-domain
+(defn delete-custom-domain!
   "delete custom domain"
   [domain]
   (http-request (str "/v2/domains/v3/" domain) identity

@@ -9,7 +9,7 @@ A Clojure library for qiniu.com storage that wraps [qiniu java-sdk](https://gith
 Leiningen dependency:
 
 ```clojure
-	[clj.qiniu "0.2.0"]
+	[clj.qiniu "0.2.1"]
 ```
 
 require it in your namespace:
@@ -251,13 +251,13 @@ limit设定批量查询大小，默认 32。
 
 上下线自定义域名：
 ```clojure
-(online-custom-domain domain)
-(offline-custom-domain domain)
+(online-custom-domain! domain)
+(offline-custom-domain! domain)
 ```
 
 删除自定义域名：
 ```clojure
-(delete-custom-domain domain)
+(delete-custom-domain! domain)
 ```
 
 
@@ -265,9 +265,10 @@ limit设定批量查询大小，默认 32。
 
 * [xhh](https://github.com/xhh)
 * [juvenn](https://github.com/juvenn)
+* [paomian](https://github.com/paomian)
 
 ## License
 
-Copyright © 2014 killme2008
+Copyright © 2018-2028 killme2008
 
 Distributed under the Eclipse Public License version 1.0

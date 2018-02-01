@@ -1,4 +1,4 @@
-(defproject clj.qiniu "0.2.0"
+(defproject clj.qiniu "0.2.1"
   :description "Clojure SDK for qiniu.com storage."
   :url "https://github.com/killme2008/clj.qiniu"
   :license {:name "Eclipse Public License"
