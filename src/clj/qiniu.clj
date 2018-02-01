@@ -38,9 +38,8 @@
 (defn set-config!
   "Set global config for qiniu sdk."
   [& {:keys [access-key secret-key user-agent throw-exception?
-             up-host
-             ] :or {user-agent "Clojure/qiniu sdk 1.0"
-                    up-host "http://up.qiniu.com"}}]
+             up-host] :or {user-agent "Clojure/qiniu sdk 1.0"
+                           up-host "http://up.qiniu.com"}}]
   (do
     (set-value! Config/UP_HOST up-host)
     (set-value! Config/ACCESS_KEY access-key)
@@ -521,3 +520,42 @@
    See http://developer.qiniu.com/docs/v6/api/reference/fop/pfop/prefop.html"
   [id]
   (http-request (str "/status/get/prefop?id=" id) identity))
+
+(defn set-custom-domain!
+  "bind custom domain "
+  [domain bucket cert key platform geo protocol]
+  (let [result (http-request (str "/v2/domains/" domain) identity
+                             :method :post
+                             :domain "http://fusion.qiniuapi.com"
+                             :body {:sourceType "qiniuBucket"
+                                    :sourceQiniuBucket bucket
+                                    :serverCrt  cert
+                                    :serverKey key
+                                    :platform platform
+                                    :geoCover geo
+                                    :protocol protocol})]
+    (if (:ok result)
+      (http-request (str "/v2/domains/" domain) identity
+                    :domain "http://fusion.qiniuapi.com")
+      result)))
+
+(defn offline-custom-domain!
+  "offline custom domain"
+  [domain]
+  (http-request (format "/v2/domains/%s/offline" domain) identity
+                :method :post
+                :domain "http://fusion.qiniuapi.com"))
+
+(defn online-custom-domain!
+  "online custom domain"
+  [domain]
+  (http-request (format "/v2/domains/%s/online" domain) identity
+                :method :post
+                :domain "http://fusion.qiniuapi.com"))
+
+(defn delete-custom-domain
+  "delete custom domain"
+  [domain]
+  (http-request (str "/v2/domains/v3/" domain) identity
+                :method :delete
+                :domain "http://fusion.qiniuapi.com"))
