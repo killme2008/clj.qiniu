@@ -3,24 +3,21 @@
   {:author "dennis zhuang"
    :email "killme2008@gmail.com"
    :home "https://github.com/killme2008/clj.qiniu"}
-  (:import [com.qiniu.api.config Config]
-           [com.qiniu.api.rs PutPolicy URLUtils GetPolicy RSClient Entry
-            EntryPath EntryPathPair BatchCallRet BatchStatRet]
-           [java.io InputStream File]
-           [org.apache.commons.codec.binary Base64]
-           [com.qiniu.api.io IoApi PutExtra PutRet]
-           [com.qiniu.api.net CallRet]
-           [com.qiniu.api.fop ImageInfo ImageInfoRet
-            ImageExif ExifRet ExifValueType
-            ImageView]
-           [com.qiniu.api.auth.digest Mac]
-           [com.qiniu.api.rsf RSFClient ListPrefixRet ListItem RSFEofException])
+  (:import [java.io InputStream File]
+           [java.net URLEncoder]
+
+           [com.google.gson Gson]
+           [com.qiniu.util Auth StringMap Base64]
+           [com.qiniu.http Response]
+           [com.qiniu.common Zone QiniuException]
+           [com.qiniu.storage Configuration BucketManager UploadManager BucketManager$BatchOperations]
+           [com.qiniu.storage.model BatchStatus DefaultPutRet FileInfo BatchOpData])
   (:require [clojure.java.io :as io]
             [clj-http.client :as http]))
 
-(defmacro ^:private set-value! [k v]
+(defmacro ^:private reset-value! [k v]
   `(when ~v
-     (set! ~k ~v)))
+     (reset! ~k ~v)))
 
 (defmacro def-threadlocal-var
   "A macro to define thread-local var.
@@ -34,6 +31,10 @@
          (deref [] (.get ~(with-meta 'this {:tag `ThreadLocal})))))))
 
 (defonce ^:private throw-exception-atom? (atom false))
+(defonce ^:private UP-HOST (atom "http://up.qiniu.com"))
+(defonce ^:private ACCESS-KEY (atom ""))
+(defonce ^:private SECRET-KEY (atom ""))
+(defonce ^:private USER-AGENT (atom "Clojure/qiniu sdk 1.0"))
 
 (defn set-config!
   "Set global config for qiniu sdk."
@@ -41,87 +42,80 @@
              up-host] :or {user-agent "Clojure/qiniu sdk 1.0"
                            up-host "http://up.qiniu.com"}}]
   (do
-    (set-value! Config/UP_HOST up-host)
-    (set-value! Config/ACCESS_KEY access-key)
-    (set-value! Config/SECRET_KEY secret-key)
-    (set-value! Config/USER_AGENT user-agent)
-    (when throw-exception?
-      (reset! throw-exception-atom? throw-exception?))
-    Config))
+    (reset-value! UP-HOST up-host)
+    (reset-value! ACCESS-KEY access-key)
+    (reset-value! SECRET-KEY secret-key)
+    (reset-value! USER-AGENT user-agent)
+    (reset-value! throw-exception-atom? throw-exception?))
+  {:UP-HOST @UP-HOST
+   :ACCESS-KEY @ACCESS-KEY
+   :SECRET-KEY @SECRET-KEY
+   :USER-AGENT @USER-AGENT})
 
-(defn- ^Mac create-mac [{:keys [access-key secret-key]}]
-  (Mac. (or access-key Config/ACCESS_KEY) (or secret-key Config/SECRET_KEY)))
+(defn ^Auth create-auth [{:keys [access-key secret-key]}]
+  (Auth/create (or access-key @ACCESS-KEY) (or secret-key @SECRET-KEY)))
 
 (defn uptoken
   "Create a uptoken for uploading file. see http://developer.qiniu.com/docs/v6/sdk/java-sdk.html#make-uptoken"
-  [bucket & {:keys [access-key secret-key expires scope callbackUrl callbackBody asyncOps returnUrl returnBody detectMime insertOnly mimeLimit persistentOps persistentNotifyUrl saveKey endUser fsizeLimit] :as opts}]
-  (let [mac (create-mac opts)
-        ^PutPolicy pp (PutPolicy. bucket)]
-    (set-value! (.expires pp) expires)
-    (set-value! (.scope pp) scope)
-    (set-value! (.callbackUrl pp) callbackUrl)
-    (set-value! (.callbackBody pp) callbackBody)
-    (set-value! (.asyncOps pp) asyncOps)
-    (set-value! (.returnUrl pp) returnUrl)
-    (set-value! (.returnBody pp) returnBody)
-    (set-value! (.detectMime pp) detectMime)
-    (set-value! (.insertOnly pp) insertOnly)
-    (set-value! (.mimeLimit pp) mimeLimit)
-    (set-value! (.persistentOps pp) persistentOps)
-    (set-value! (.persistentNotifyUrl pp) persistentNotifyUrl)
-    (set-value! (.saveKey pp) saveKey)
-    (set-value! (.endUser pp) endUser)
-    (set-value! (.fsizeLimit pp) fsizeLimit)
-    (.token pp mac)))
+  [bucket & {:keys [access-key secret-key expires mimeLimit persistentOps detectMime deadline endUser isPrefixalScope fsizeMin callbackBodyType returnBody saveKey callbackHost persistentPipeline callbackBody scope fileType persistentNotifyUrl fsizeLimit insertOnly returnUrl callbackUrl] :as opts :or {expires 3600}}]
+  (let [auth (create-auth opts)
+        ^StringMap sm (StringMap.)]
+    (doseq [[k v] opts]
+      (.put sm (name k) v))
+    (.uploadToken auth bucket nil expires sm true)))
 
-(defn- callret->map [^CallRet ret]
-  (when ret
-    (let [m {:status (.getStatusCode ret) :response (.getResponse ret)}]
-      (if (.ok ret)
-        (assoc m :ok true)
-        (if @throw-exception-atom?
-          (throw (ex-info "Server return error." m))
-          (assoc m :exception (.getException ret)))))))
+(defn- map->string-map
+  [m]
+  (let [sm (StringMap.)]
+    (doseq [[k v] m]
+      (.put sm (name k) v))
+    sm))
 
-(defn- putret->map
-  "Convert the PutRet to a hash map."
-  [^PutRet ret]
-  (merge (callret->map ret)
-         (when ret
-           {:hash (.getHash ret)
-            :key (.getKey ret)})))
+(defonce bm-cfg (Configuration. (Zone/zone0)))
 
+(defn convert-qiniu-ex
+  [^QiniuException qe]
+  (let [resp (.response qe)]
+    {:status (.statusCode resp)
+     :response (.bodyString resp)
+     :exception qe}))
 
-(defn- stringify-map-keys [m]
-  (when m
-    (into {}
-          (map (fn [[k v]]
-                 [(name k)
-                  (if (map? v)
-                    (stringify-map-keys v)
-                    v)]) m))))
+(defmacro resolve-qiniu-ex [& body]
+  `(try
+     (do
+       ~@body)
+     (catch QiniuException qe#
+       (let [res# (convert-qiniu-ex qe#)]
+         (if @throw-exception-atom?
+           (throw (ex-info "Request faild." res#))
+           res#)))))
 
-(defonce auto-crc32 IoApi/AUTO_CRC32)
-(defonce no-crc32 IoApi/NO_CRC32)
-(defonce with-crc32 IoApi/WITH_CRC32)
+(def default-return
+  (constantly {:status 200 :ok true}))
 
-(defn- ^PutExtra extra->instance [& {:keys [checkCrc crc32 mimeType params]}]
-  (let [^PutExtra extra (PutExtra.)]
-    (set-value! (.checkCrc extra) checkCrc)
-    (set-value! (.crc32 extra) crc32)
-    (set-value! (.mimeType extra) mimeType)
-    (set-value! (.params extra) (stringify-map-keys params))
-    extra))
+(defn- ^BucketManager bucket-manager [opts]
+  (BucketManager. (create-auth opts) bm-cfg))
+
+(defn- ^UploadManager upload-manager [ops]
+  (UploadManager. bm-cfg))
 
 (defn upload
   "Upload a file to qiniu storage by token and key.
   The file should can be convert into InputStream by
      clojure.java.io/input-stream
   function."
-  [^String token ^String key file & opts]
-  (let [^PutExtra extra (apply extra->instance opts)
+  [^String token ^String key file & {:keys [mimeType params] :as opts}]
+  (let [^UploadManager um (upload-manager opts)
         ^InputStream is (io/input-stream file)]
-    (putret->map (IoApi/Put token key is extra))))
+    (resolve-qiniu-ex
+     (-> um
+         (.put is key token (map->string-map params) mimeType)
+         ((fn [response]
+            (let [dpr (.fromJson (Gson.) (.bodyString response) DefaultPutRet)]
+              {:status 200
+               :ok true
+               :key (.key dpr)
+               :hash (.hash dpr)})))))))
 
 (defn upload-bucket
   "Upload a file to qiniu storage bucket.
@@ -135,16 +129,14 @@
 (defn public-download-url
   "Create a download url for public file."
   [domain key]
-  (URLUtils/makeBaseUrl domain key))
+  (format "http://%s/%s" domain (URLEncoder/encode key "utf-8")))
 
 (defn private-download-url
   "Create a download url for public file."
   [domain key & {:keys [expires access-key secret-key] :as opts}]
-  (let [mac (create-mac opts)
-        ^String base-url (public-download-url domain key)
-        ^GetPolicy gp (GetPolicy.)]
-    (set-value! (.expires gp) expires)
-    (.makeRequest gp base-url mac)))
+  (let [auth (create-auth opts)
+        ^String base-url (public-download-url domain key)]
+    (.privateDownloadUrl auth base-url expires)))
 
 (def ^{:private true :dynamic true} batch-mode false)
 (def ^{:private true :dynamic true} batch-entries nil)
@@ -161,170 +153,130 @@
   (set-batch-op op)
   (swap! batch-entries conj v))
 
-(defn- entry->map [^Entry e]
-  (merge (callret->map e)
-         (when (and e (.ok e))
-           {:fsize (.getFsize e)
-            :hash (.getHash e)
-            :mimeType (.getMimeType e)
-            :putTime (.getPutTime e)})))
+(defn- file-info->map [^FileInfo fi]
+  {:ok true
+   :status 200
+   :key (.key fi)
+   :hash (.hash fi)
+   :fsize (.fsize fi)
+   :putTime (.putTime fi)
+   :mimeType (.mimeType fi)
+   :endUser (.endUser fi)
+   :type (.type fi)})
 
-(defn- create-entry-path [bucket key]
-  (let [^EntryPath ep (EntryPath.)]
-    (set! (.bucket ep) bucket)
-    (set! (.key ep) key)
-    ep))
-
-(defn- ^RSClient rs-client [opts]
-  (RSClient. (create-mac opts)))
+(defn key->array
+  [key]
+  (if (seq? key)
+    (into-array key)
+    (into-array [key])))
 
 (defn stat
   "Stat a file."
   [bucket key & opts]
   (if-not batch-mode
-    (->
-     (rs-client (apply hash-map opts))
-     (.stat bucket key)
-     (entry->map))
-    (add-batch-entry :stat (create-entry-path bucket key))))
-
-(defn- ^EntryPathPair create-entry-pair [sb sk db dk]
-  (let [^EntryPathPair pair (EntryPathPair.)
-        ^EntryPath src (create-entry-path sb sk)
-        ^EntryPath dst (create-entry-path db dk)]
-    (set! (.src pair) src)
-    (set! (.dest pair) dst)
-    pair))
+    (resolve-qiniu-ex
+     (->
+      (bucket-manager (apply hash-map opts))
+      (.stat bucket key)
+      (file-info->map)))
+    (do (set-batch-op :stat)
+        (.addStatOps batch-entries bucket (key->array key)))))
 
 (defn copy
   "Copy a file"
   [src-bucket src-key dst-bucket dst-key & opts]
   (if-not batch-mode
-    (->
-     (rs-client (apply hash-map opts))
-     (.copy src-bucket src-key dst-bucket dst-key)
-     (callret->map))
-    (add-batch-entry :copy
-                     (create-entry-pair src-bucket src-key dst-bucket dst-key))))
+    (resolve-qiniu-ex
+     (->
+      (bucket-manager (apply hash-map opts))
+      (.copy src-bucket src-key dst-bucket dst-key)
+      (default-return)))
+    (do (set-batch-op :copy)
+        (.addCopyOp batch-entries src-bucket src-key dst-bucket dst-key))))
 
 (defn move
   "Move a file"
   [src-bucket src-key dst-bucket dst-key & opts]
   (if-not batch-mode
-    (->
-     (rs-client (apply hash-map opts))
-     (.move src-bucket src-key dst-bucket dst-key)
-     (callret->map))
-    (add-batch-entry :move
-                     (create-entry-pair src-bucket src-key dst-bucket dst-key))))
+    (resolve-qiniu-ex
+     (->
+      (bucket-manager (apply hash-map opts))
+      (.move src-bucket src-key dst-bucket dst-key)
+      (default-return)))
+    (do (set-batch-op :move)
+        (.addMoveOp batch-entries src-bucket src-key dst-bucket dst-key))))
 
 (defn delete
   "Delete a file."
   [bucket key & opts]
   (if-not batch-mode
-    (->
-     (rs-client (apply hash-map opts))
-     (.delete bucket key)
-     (callret->map))
-    (add-batch-entry :delete (create-entry-path bucket key))))
+    (resolve-qiniu-ex
+     (->
+      (bucket-manager (apply hash-map opts))
+      (.delete bucket key)
+      (default-return)))
+    (do (set-batch-op :delete)
+        (.addDeleteOp batch-entries bucket (key->array key)))))
 
-(defmulti exec-batch
-  "excute batch operations based on op type."
-  {:private true}
-  (fn [rs-client entries op] op))
+(defn exec-batch
+  [^BucketManager bm ops op]
+  (cond
+    (#{:stat :copy :move :delete} op) (.batch bm ops)
+    (nil? op) nil
+    :default (throw (ex-info (str "Unknown op:" op) {:op op}))))
 
-(defmethod exec-batch :stat [^RSClient rc entries _]
-  (->
-   rc
-   (.batchStat entries)))
+(defn- batch-op-data->map
+  [^BatchOpData bod]
+  (when bod
+    {:fsize (.fsize bod)
+     :hash (.hash bod)
+     :mimeType (.mimeType bod)
+     :putTime (.putTime bod)
+     :error (.error bod)}))
 
-(defmethod exec-batch :copy [^RSClient rc entries _]
-  (->
-   rc
-   (.batchCopy entries)))
+(defn- is-ok?
+  [code]
+  (= 200 code))
 
-(defmethod exec-batch :move [^RSClient rc entries _]
-  (->
-   rc
-   (.batchMove entries)))
 
-(defmethod exec-batch :delete [^RSClient rc entries _]
-  (->
-   rc
-   (.batchDelete entries)))
 
-(defmethod exec-batch nil [_ _ _]
-  nil)
-
-(defmethod exec-batch :default [_ _ op]
-  (throw (ex-info (str "Unknown op:" op) {:op op})))
-
-(defn- convert-batchret [ret op]
-  (merge (callret->map ret)
-         (when (and ret (.ok ret))
-           {:results
-            (if (= op :stat)
-              (map entry->map (.results ^BatchStatRet ret))
-              (map callret->map (.results ^BatchCallRet ret)))})))
+(defn- convert-batchret [^Response ret op]
+  (let [ok (.isOK ret)
+        status (.statusCode ret)
+        result (.jsonToObject ret (Class/forName "[Lcom.qiniu.storage.model.BatchStatus;"))]
+    {:results
+     (map (fn [x]
+            (assoc (batch-op-data->map (.data x))
+                   :status (.code x)
+                   :ok (is-ok? (.code x)))) result)
+     :ok ok
+     :status status}))
 
 (defn exec
   "Execute  batch operations.The entries must be the same type."
   [& {:keys [entries] :as opts}]
   (if batch-mode
     (try
-      (-> (rs-client opts)
-          (exec-batch (or entries @batch-entries) @batch-op)
+      (-> (bucket-manager opts)
+          (exec-batch (or entries batch-entries) @batch-op)
           (convert-batchret @batch-op))
+      (catch QiniuException qe
+        (convert-qiniu-ex qe))
       (finally
-        (reset! batch-entries [])
+        (.clearOps batch-entries)
         (.remove batch-op)))
     (throw (ex-info "exec must be invoked in with-batch body."))))
 
 (defmacro with-batch [ & body]
-  `(binding [batch-entries (atom [])
+  `(binding [batch-entries (BucketManager$BatchOperations.)
              batch-mode true]
      (try
        ~@body
        (finally
          (.remove batch-op)))))
 
-(defn image-info
-  "Get the picture's basic information,such as format,width,height and colorModel.
-  http://developer.qiniu.com/docs/v6/sdk/java-sdk.html#fop-image-info"
-  [url & opts]
-  (when-let [^ImageInfoRet ret (ImageInfo/call url (create-mac (apply hash-map opts)))]
-    {:format (.format ret)
-     :width (.width ret)
-     :height (.height ret)
-     :colorModel (.colorModel ret)}))
 
-(defn image-exif
-  "Get the image's exif."
-  [url & opts]
-  (when-let [^ExifRet ret (ImageExif/call url (create-mac (apply hash-map opts)))]
-    (merge (callret->map ret)
-           (when (and ret (.ok ret))
-             {:exif
-              (into {}
-                    (map (fn [[k ^ExifValueType v]]
-                           [k (when v {:type (.type v) :value (.value v)})])
-                         (into {} (.result ret))))}))))
-
-(defn image-view
-  "Make a image thumbnail.
-  http://developer.qiniu.com/docs/v6/sdk/java-sdk.html#fop-image-view"
-  [url & {:keys [mode width height quality format] :or {format "png" quality 80 width 100 height 100 mode 1} :as opts}]
-  (let [^ImageView iv (ImageView.)]
-    (set-value! (.mode iv) mode)
-    (set-value! (.height iv) height)
-    (set-value! (.width iv) width)
-    (set-value! (.quality iv) quality)
-    (set-value! (.format iv) format)
-    (-> iv
-        (.call url (create-mac opts))
-        (callret->map))))
-
-(defn- listitem->map [^ListItem it]
+(defn- listitem->map [^FileInfo it]
   (when it
     {:key (.key it)
      :hash (.hash it)
@@ -333,29 +285,33 @@
      :mimeType (.mimeType it)
      :endUser (.endUser it)}))
 
+(defn traversal-file-list-iterator
+  [fli]
+  (if (.hasNext fli)
+    (concat
+     (map listitem->map (.next fli))
+     (if (.hasNext fli)
+       (lazy-seq (traversal-file-list-iterator fli))
+       (lazy-seq [])))
+    (lazy-seq [])))
+
 (defn bucket-file-seq
   "List files in a bucket. Returns a lazy sequence of result files."
-  [bucket prefix & {:keys [limit marker rsf-client] :or {limit 32 marker ""} :as opts}]
-  (let [rsf-client (or rsf-client (RSFClient. (create-mac opts)))]
-    (when-let [^ListPrefixRet ret (->
-                                   rsf-client
-                                   (.listPrifix bucket prefix marker limit))]
-      (let [^String marker (.marker ret)
-            results (.results ret)]
-        (concat
-         (map listitem->map results)
-         (if (.ok ret)
-           (lazy-seq (bucket-file-seq bucket prefix :limit limit :rsf-client rsf-client :marker marker))
-           (when-not (instance? RSFEofException (.exception ret))
-             (throw (ex-info "List bucket files fails." {:exception (.exception ret)})))))))))
+  [bucket prefix & {:keys [limit bm delimiter] :or {limit 32} :as opts}]
+  (let [bm (or bm (bucket-manager opts))]
+    (when-let [fli
+               (->
+                bm
+                (.createFileListIterator bucket prefix limit delimiter))]
+      (traversal-file-list-iterator fli))))
 
 (defonce valid-stat-items #{"apicall" "transfer" "space"})
 (defonce qiniu-api-url "http://api.qiniu.com")
 (def stats-grain "day")
 
 (defn make-authorization [^String path]
-  (let [^Mac mac (create-mac nil)]
-    (str "QBox " (.sign mac (.getBytes path)))))
+  (let [^Auth auth (create-auth nil)]
+    (str "QBox " (.sign auth (.getBytes path)))))
 
 (defn http-request
   "Make authorized request to qiniu api."
@@ -369,18 +325,18 @@
                  :throw-exceptions false
                  :as :json
                  :client-params
-                 {"http.useragent" Config/USER_AGENT}
+                 {"http.useragent" @USER-AGENT}
                  :headers
                  {"Authorization"
                   (make-authorization
                    (str path "\n"))}}
-        {:keys [status body]} (http/request (merge default opts))]
+        {:keys [status body] :as resp} (http/request (merge default opts))]
     (if (= status 200)
       {:ok true
        :results (f body)}
       (if @throw-exception-atom?
         (throw (ex-info "Request failed." {:body body}))
-        {:ok false :response body :status status}))))
+        {:ok false :response body :status status :resp resp}))))
 
 (defn bucket-stats
   "Get the bucket statistics info."
@@ -427,36 +383,6 @@
                 :method :post
                 :domain rs-api-domain))
 
-(defn- encode-base64ex
-  [src]
-  (let [b64 (Base64/encodeBase64 src)
-        length (alength ^bytes b64)]
-    (doseq [i (range 0 length)]
-      (do
-        (if (= 47 (aget b64 i))
-          (aset-byte b64 i 95))
-        (if (= 43 (aget b64 i))
-          (aset-byte b64 i 45))))
-    b64))
-
-(defn url-safe-encode-bytes
-  [^bytes src]
-  (let [length (alength src)]
-    (if (zero? (rem (alength src) 3))
-      (encode-base64ex src)
-      (let [^bytes src (encode-base64ex src)
-            length (alength src)
-            remainder (rem length 4)]
-        (if (zero? remainder)
-          src
-          (let [pad (- 4 remainder)
-                padded-bytes (byte-array (+ length pad))]
-            (System/arraycopy src 0 padded-bytes 0 length)
-            (aset-byte padded-bytes length 61)
-            (if (> pad 1)
-              (aset-byte padded-bytes (inc length) 61))
-            padded-bytes))))))
-
 (defn bucket-info
   "Get bucket info."
   ([bucket]
@@ -489,7 +415,7 @@
 (defn publish-bucket
   "Publish bucket as public domain."
   [bucket domain]
-  (http-request (str "/publish/" (String. ^bytes (url-safe-encode-bytes (.getBytes ^String domain)))  "/from/" bucket) identity
+  (http-request (str "/publish/" (String. ^bytes (Base64/encode (.getBytes ^String domain) Base64/URL_SAFE))  "/from/" bucket) identity
                 :method :post
                 :domain rs-api-domain))
 

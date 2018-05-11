@@ -1,6 +1,5 @@
 (ns clj.qiniu-test
-  (:import [com.qiniu.api.config Config]
-           [java.io StringReader])
+  (:import [java.io StringReader])
   (:require [clojure.test :refer :all]
             [clojure.string :as cstr]
             [clojure.java.io :as io]
@@ -18,20 +17,19 @@
    :tag String}
   ([] (uuid 48))
   ([n]
-     (let [charseq (map char (concat
-                              (range 48 58)     ; 0-9
-                              (range 65 90)      ;A-Z
-                              (range 97 123)))] ; a-z
-       (cstr/join
-        (repeatedly n #(rand-nth charseq))))))
+   (let [charseq (map char (concat
+                            (range 48 58)     ; 0-9
+                            (range 65 90)      ;A-Z
+                            (range 97 123)))] ; a-z
+     (cstr/join
+      (repeatedly n #(rand-nth charseq))))))
 
 (deftest test-config
   (testing "set-config!"
     (let [config (set-config! :access-key test-key :secret-key test-secret)]
-      (is (= config Config))
-      (is (= test-key Config/ACCESS_KEY))
-      (is (= test-secret Config/SECRET_KEY))
-      (is (= "Clojure/qiniu sdk 1.0" Config/USER_AGENT)))))
+      (is (= test-key (:ACCESS-KEY config)))
+      (is (= test-secret (:SECRET-KEY config)))
+      (is (= "Clojure/qiniu sdk 1.0" (:USER-AGENT config))))))
 
 (deftest test-uptoken
   (testing "uptoken"
@@ -40,11 +38,7 @@
     (is (uptoken test-bucket :expires 10 :scope test-bucket :callbackUrl "http://localhost"))
     (is (uptoken test-bucket :expires 10 :scope test-bucket :callbackUrl "http://localhost" :detectMime 1))
     (is (uptoken test-bucket :expires 10 :scope test-bucket  :callbackUrl "http://localhost" :detectMime 1 :insertOnly 1))
-    (is (uptoken test-bucket :expires 10 :scope test-bucket  :callbackUrl "http://localhost" :detectMime 1 :insertOnly 1 :fsizeLimit (* 1024 1024)))
-    (is (thrown? ClassCastException
-                 (uptoken test-bucket :insertOnly true)))
-    (is (thrown? ClassCastException
-                 (uptoken test-bucket :fsizeLimit "1024")))))
+    (is (uptoken test-bucket :expires 10 :scope test-bucket  :callbackUrl "http://localhost" :detectMime 1 :insertOnly 1 :fsizeLimit (* 1024 1024)))))
 
 (deftest test-upload
   (testing "upload"
@@ -113,21 +107,6 @@
       (let [ret (delete test-bucket k)]
         (is (:ok ret))
         (is (nil? (:hash (stat test-bucket k))))))))
-
-(deftest test-image-info-exif-view
-  (testing "Image info and process."
-    ;;image info
-    (let [url "http://clj-qiniu.qiniudn.com/0vdgFysdny3BxUTEQYYGCLdMjzRpR1s34RFbbiB0SWUFmCGe"]
-      (let [{:keys [format width height colorModel]} (image-info url)]
-        (is (= "jpeg" format))
-        (is (= 300 width))
-        (is (= 225 height))
-        (is (= "ycbcr" colorModel)))
-      (is (= 400 (:status (image-exif url))))
-      (let [{:keys [status ok response]} (image-view url)]
-        (is (= 200 status))
-        (is ok)
-        (is response)))))
 
 (deftest test-bucket-file-seq
   (testing "bucket-file-seq"
@@ -234,8 +213,8 @@
 (deftest test-pfop
   (testing "pfop a video file."
     (let [resp (pfop "clj-qiniu"  (java.net.URLEncoder/encode "viva la vida.mp3")
-                    "avthumb/m3u8/segtime/10/preset/audio_32k"
-                    "http://cn-stg1.avoscloud.com/1.1/qiniu/persistentNotify"
-                    :pipeline "dennis")]
+                     "avthumb/m3u8/segtime/10/preset/audio_32k"
+                     "http://cn-stg1.avoscloud.com/1.1/qiniu/persistentNotify"
+                     :pipeline "dennis")]
       (is (:ok resp))
-      (println (prefop-status (:results resp))))))
+      (println "prefop-status:" (prefop-status (:results resp))))))
