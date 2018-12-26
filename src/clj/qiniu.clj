@@ -2,7 +2,7 @@
   "Clojure sdk for qiniu storage."
   {:author "dennis zhuang"
    :email "killme2008@gmail.com"
-   :home "https://github.com/killme2008/clj.qiniu"}
+   :home "https://github.com/leancloud/clj.qiniu"}
   (:import [java.io InputStream File]
            [java.net URLEncoder]
 
@@ -13,7 +13,8 @@
            [com.qiniu.storage Configuration BucketManager UploadManager BucketManager$BatchOperations]
            [com.qiniu.storage.model BatchStatus DefaultPutRet FileInfo BatchOpData])
   (:require [clojure.java.io :as io]
-            [clj-http.client :as http]))
+            [clj-http.client :as http]
+            [clj-http.conn-mgr :refer [make-reusable-conn-manager]]))
 
 (defmacro ^:private reset-value! [k v]
   `(when ~v
@@ -313,6 +314,12 @@
   (let [^Auth auth (create-auth nil)]
     (str "QBox " (.sign auth (.getBytes path)))))
 
+(defonce cm
+  (let [threads (or (some-> (System/getProperty "qiniu.http.threads") #(Integer/parseInt %))
+                    100)]
+    (make-reusable-conn-manager
+     {:timeout 10 :threads threads :default-per-route threads})))
+
 (defn http-request
   "Make authorized request to qiniu api."
   [path f & {:keys [domain body] :or {domain qiniu-api-url} :as opts}]
@@ -322,6 +329,7 @@
                  :method :get
                  :form-params body
                  :url (str domain path)
+                 :connection-manager cm
                  :throw-exceptions false
                  :as :json
                  :client-params
