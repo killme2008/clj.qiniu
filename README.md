@@ -28,6 +28,8 @@ require it in your namespace:
 
 * `user-agent`:  请求的HTTP user agent值，默认`Clojure/qiniu sdk`。
 * `throw-exception?`: 错误的时候是否抛出异常，默认 false，替代地返回 `{:ok false}`加上错误信息。
+* `num-http-threads`: clj-http 使用的连接池线程数，默认10。
+
 
 ### 生成uptoken
 

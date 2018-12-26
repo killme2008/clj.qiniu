@@ -31,7 +31,13 @@
          (initialValue [] nil)
          (deref [] (.get ~(with-meta 'this {:tag `ThreadLocal})))))))
 
+
 (defonce ^:private throw-exception-atom? (atom false))
+(defonce ^:private num-http-threads-atom (atom 10))
+(defonce ^:private http-conn-manager
+  (delay
+   (make-reusable-conn-manager
+    {:timeout 10 :threads @num-http-threads-atom :default-per-route @num-http-threads-atom})))
 (defonce ^:private UP-HOST (atom "http://up.qiniu.com"))
 (defonce ^:private ACCESS-KEY (atom ""))
 (defonce ^:private SECRET-KEY (atom ""))
@@ -39,15 +45,17 @@
 
 (defn set-config!
   "Set global config for qiniu sdk."
-  [& {:keys [access-key secret-key user-agent throw-exception?
+  [& {:keys [access-key secret-key user-agent throw-exception? num-http-threads
              up-host] :or {user-agent "Clojure/qiniu sdk 1.0"
-                           up-host "http://up.qiniu.com"}}]
+                           up-host "http://up.qiniu.com"
+                           num-http-threads 10}}]
   (do
     (reset-value! UP-HOST up-host)
     (reset-value! ACCESS-KEY access-key)
     (reset-value! SECRET-KEY secret-key)
     (reset-value! USER-AGENT user-agent)
-    (reset-value! throw-exception-atom? throw-exception?))
+    (reset-value! throw-exception-atom? throw-exception?)
+    (reset-value! num-http-threads-atom num-http-threads))
   {:UP-HOST @UP-HOST
    :ACCESS-KEY @ACCESS-KEY
    :SECRET-KEY @SECRET-KEY
@@ -314,12 +322,6 @@
   (let [^Auth auth (create-auth nil)]
     (str "QBox " (.sign auth (.getBytes path)))))
 
-(defonce cm
-  (let [threads (or (some-> (System/getProperty "qiniu.http.threads") #(Integer/parseInt %))
-                    100)]
-    (make-reusable-conn-manager
-     {:timeout 10 :threads threads :default-per-route threads})))
-
 (defn http-request
   "Make authorized request to qiniu api."
   [path f & {:keys [domain body] :or {domain qiniu-api-url} :as opts}]
@@ -329,7 +331,7 @@
                  :method :get
                  :form-params body
                  :url (str domain path)
-                 :connection-manager cm
+                 :connection-manager @http-conn-manager
                  :throw-exceptions false
                  :as :json
                  :client-params
