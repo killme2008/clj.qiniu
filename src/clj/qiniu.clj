@@ -2,7 +2,7 @@
   "Clojure sdk for qiniu storage."
   {:author "dennis zhuang"
    :email "killme2008@gmail.com"
-   :home "https://github.com/killme2008/clj.qiniu"}
+   :home "https://github.com/leancloud/clj.qiniu"}
   (:import [java.io InputStream File]
            [java.net URLEncoder]
 
@@ -13,7 +13,8 @@
            [com.qiniu.storage Configuration BucketManager UploadManager BucketManager$BatchOperations]
            [com.qiniu.storage.model BatchStatus DefaultPutRet FileInfo BatchOpData])
   (:require [clojure.java.io :as io]
-            [clj-http.client :as http]))
+            [clj-http.client :as http]
+            [clj-http.conn-mgr :refer [make-reusable-conn-manager]]))
 
 (defmacro ^:private reset-value! [k v]
   `(when ~v
@@ -30,7 +31,13 @@
          (initialValue [] nil)
          (deref [] (.get ~(with-meta 'this {:tag `ThreadLocal})))))))
 
+
 (defonce ^:private throw-exception-atom? (atom false))
+(defonce ^:private num-http-threads-atom (atom 10))
+(defonce ^:private http-conn-manager
+  (delay
+   (make-reusable-conn-manager
+    {:timeout 10 :threads @num-http-threads-atom :default-per-route @num-http-threads-atom})))
 (defonce ^:private UP-HOST (atom "http://up.qiniu.com"))
 (defonce ^:private ACCESS-KEY (atom ""))
 (defonce ^:private SECRET-KEY (atom ""))
@@ -38,15 +45,17 @@
 
 (defn set-config!
   "Set global config for qiniu sdk."
-  [& {:keys [access-key secret-key user-agent throw-exception?
+  [& {:keys [access-key secret-key user-agent throw-exception? num-http-threads
              up-host] :or {user-agent "Clojure/qiniu sdk 1.0"
-                           up-host "http://up.qiniu.com"}}]
+                           up-host "http://up.qiniu.com"
+                           num-http-threads 10}}]
   (do
     (reset-value! UP-HOST up-host)
     (reset-value! ACCESS-KEY access-key)
     (reset-value! SECRET-KEY secret-key)
     (reset-value! USER-AGENT user-agent)
-    (reset-value! throw-exception-atom? throw-exception?))
+    (reset-value! throw-exception-atom? throw-exception?)
+    (reset-value! num-http-threads-atom num-http-threads))
   {:UP-HOST @UP-HOST
    :ACCESS-KEY @ACCESS-KEY
    :SECRET-KEY @SECRET-KEY
@@ -322,6 +331,7 @@
                  :method :get
                  :form-params body
                  :url (str domain path)
+                 :connection-manager @http-conn-manager
                  :throw-exceptions false
                  :as :json
                  :client-params

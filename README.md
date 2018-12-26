@@ -2,14 +2,14 @@
 
 A Clojure library for qiniu.com storage that wraps [qiniu java-sdk](https://github.com/qiniu/java-sdk).
 
-![alt test coverage](https://raw.github.com/killme2008/clj.qiniu/master/coverage.png)
+![alt test coverage](https://raw.github.com/leancloud/clj.qiniu/master/coverage.png)
 
 ## Usage
 
 Leiningen dependency:
 
 ```clojure
-	[clj.qiniu "0.2.0"]
+[cn.leancloud/clj.qiniu "0.2.1"]
 ```
 
 require it in your namespace:
@@ -28,6 +28,8 @@ require it in your namespace:
 
 * `user-agent`:  请求的HTTP user agent值，默认`Clojure/qiniu sdk`。
 * `throw-exception?`: 错误的时候是否抛出异常，默认 false，替代地返回 `{:ok false}`加上错误信息。
+* `num-http-threads`: clj-http 使用的连接池线程数，默认10。
+
 
 ### 生成uptoken
 
