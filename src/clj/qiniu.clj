@@ -44,7 +44,7 @@
 (defonce ^:private ACCESS-KEY (atom ""))
 (defonce ^:private SECRET-KEY (atom ""))
 (defonce ^:private USER-AGENT (atom "Clojure/qiniu sdk 1.0"))
-(def ^:private ^Cache bucket-manager-cache
+(def ^:private bucket-manager-cache
   (delay (.. (Caffeine/newBuilder)
              (initialCapacity 10)
              (maximumSize @max-bucket-manager-cache-atom)
