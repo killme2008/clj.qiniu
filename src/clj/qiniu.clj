@@ -1,20 +1,20 @@
 (ns clj.qiniu
   "Clojure sdk for qiniu storage."
-  {:author "dennis zhuang"
-   :email "killme2008@gmail.com"
+  {:author "dennis zhuang",
+   :email "killme2008@gmail.com",
    :home "https://github.com/leancloud/clj.qiniu"}
-  (:import [java.io InputStream File]
-           [java.net URLEncoder]
-
-           [com.google.gson Gson]
-           [com.qiniu.util Auth StringMap Base64]
-           [com.qiniu.http Response]
-           [com.qiniu.common Zone QiniuException]
-           [com.qiniu.storage Configuration BucketManager UploadManager BucketManager$BatchOperations]
-           [com.qiniu.storage.model BatchStatus DefaultPutRet FileInfo BatchOpData])
-  (:require [clojure.java.io :as io]
-            [clj-http.client :as http]
-            [clj-http.conn-mgr :refer [make-reusable-conn-manager]]))
+  (:require [clj-http.client :as http]
+            [clj-http.conn-mgr :refer [make-reusable-conn-manager]]
+            [clojure.java.io :as io])
+  (:import com.google.gson.Gson
+           [com.qiniu.common QiniuException Zone]
+           com.qiniu.http.Response
+           [com.qiniu.storage BucketManager BucketManager$BatchOperations Configuration UploadManager]
+           [com.qiniu.storage.model BatchOpData DefaultPutRet FileInfo]
+           [com.qiniu.util Auth Base64 StringMap]
+           java.io.InputStream
+           java.net.URLEncoder
+           java.util.concurrent.ConcurrentHashMap))
 
 (defmacro ^:private reset-value! [k v]
   `(when ~v
@@ -102,11 +102,14 @@
 (def default-return
   (constantly {:status 200 :ok true}))
 
-(defn- ^BucketManager bucket-manager [opts]
-  (BucketManager. (create-auth opts) bm-cfg))
+(def ^:private bucket-manager-cache (ConcurrentHashMap.))
+(defn- ^BucketManager bucket-manager [{:keys [access-key] :as opts}]
+  (let [cache-key (or access-key @ACCESS-KEY)
+        manager (BucketManager. (create-auth opts) bm-cfg)]
+    (or (.putIfAbsent bucket-manager-cache cache-key manager)
+        manager)))
 
-(defn- ^UploadManager upload-manager [ops]
-  (UploadManager. bm-cfg))
+(defonce ^:private ^UploadManager upload-manager (delay (UploadManager. bm-cfg)))
 
 (defn upload
   "Upload a file to qiniu storage by token and key.
@@ -114,10 +117,9 @@
      clojure.java.io/input-stream
   function."
   [^String token ^String key file & {:keys [mimeType params] :as opts}]
-  (let [^UploadManager um (upload-manager opts)
-        ^InputStream is (io/input-stream file)]
+  (let [^InputStream is (io/input-stream file)]
     (resolve-qiniu-ex
-     (-> um
+     (-> @upload-manager
          (.put is key token (map->string-map params) mimeType)
          ((fn [response]
             (let [dpr (.fromJson (Gson.) (.bodyString response) DefaultPutRet)]
