@@ -1,4 +1,4 @@
-# clj.qiniu
+# clj.qiniu [![Build Status](https://travis-ci.org/leancloud/clj.qiniu.svg?branch=master)](https://travis-ci.org/leancloud/clj.qiniu)
 
 A Clojure library for qiniu.com storage that wraps [qiniu java-sdk](https://github.com/qiniu/java-sdk).
 
@@ -9,7 +9,7 @@ A Clojure library for qiniu.com storage that wraps [qiniu java-sdk](https://gith
 Leiningen dependency:
 
 ```clojure
-[cn.leancloud/clj.qiniu "0.2.1"]
+[cn.leancloud/clj.qiniu "0.2.2"]
 ```
 
 require it in your namespace:
