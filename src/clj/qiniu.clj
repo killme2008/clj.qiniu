@@ -12,9 +12,10 @@
            [com.qiniu.storage BucketManager BucketManager$BatchOperations Configuration UploadManager]
            [com.qiniu.storage.model BatchOpData DefaultPutRet FileInfo]
            [com.qiniu.util Auth Base64 StringMap]
+           [com.github.benmanes.caffeine.cache Caffeine Cache]
            java.io.InputStream
            java.net.URLEncoder
-           java.util.concurrent.ConcurrentHashMap))
+           java.util.concurrent.TimeUnit))
 
 (defmacro ^:private reset-value! [k v]
   `(when ~v
@@ -34,6 +35,7 @@
 
 (defonce ^:private throw-exception-atom? (atom false))
 (defonce ^:private num-http-threads-atom (atom 10))
+(defonce ^:private max-bucket-manager-cache-atom (atom 200))
 (defonce ^:private http-conn-manager
   (delay
    (make-reusable-conn-manager
@@ -42,10 +44,16 @@
 (defonce ^:private ACCESS-KEY (atom ""))
 (defonce ^:private SECRET-KEY (atom ""))
 (defonce ^:private USER-AGENT (atom "Clojure/qiniu sdk 1.0"))
+(def ^:private ^Cache bucket-manager-cache
+  (delay (.. (Caffeine/newBuilder)
+             (initialCapacity 10)
+             (maximumSize @max-bucket-manager-cache-atom)
+             (expireAfterWrite 1 TimeUnit/HOURS)
+             (build))))
 
 (defn set-config!
   "Set global config for qiniu sdk."
-  [& {:keys [access-key secret-key user-agent throw-exception? num-http-threads
+  [& {:keys [access-key secret-key user-agent throw-exception? num-http-threads max-bucket-manager-cache
              up-host] :or {user-agent "Clojure/qiniu sdk 1.0"
                            up-host "http://up.qiniu.com"
                            num-http-threads 10}}]
@@ -55,7 +63,8 @@
     (reset-value! SECRET-KEY secret-key)
     (reset-value! USER-AGENT user-agent)
     (reset-value! throw-exception-atom? throw-exception?)
-    (reset-value! num-http-threads-atom num-http-threads))
+    (reset-value! num-http-threads-atom num-http-threads)
+    (reset-value! max-bucket-manager-cache-atom max-bucket-manager-cache))
   {:UP-HOST @UP-HOST
    :ACCESS-KEY @ACCESS-KEY
    :SECRET-KEY @SECRET-KEY
@@ -102,12 +111,11 @@
 (def default-return
   (constantly {:status 200 :ok true}))
 
-(def ^:private bucket-manager-cache (ConcurrentHashMap.))
-(defn- ^BucketManager bucket-manager [{:keys [access-key] :as opts}]
-  (let [cache-key (or access-key @ACCESS-KEY)
-        manager (BucketManager. (create-auth opts) bm-cfg)]
-    (or (.putIfAbsent bucket-manager-cache cache-key manager)
-        manager)))
+(defn- ^BucketManager bucket-manager [{:keys [access-key] :or {access-key @ACCESS-KEY} :as opts}]
+  (.get ^Cache @bucket-manager-cache access-key
+        (reify java.util.function.Function
+          (apply [_ _]
+            (BucketManager. (create-auth opts) bm-cfg)))))
 
 (defonce ^:private ^UploadManager upload-manager (delay (UploadManager. bm-cfg)))
 
