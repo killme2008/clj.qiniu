@@ -74,13 +74,24 @@
   (Auth/create (or access-key @ACCESS-KEY) (or secret-key @SECRET-KEY)))
 
 (defn uptoken
-  "Create a uptoken for uploading file. see http://developer.qiniu.com/docs/v6/sdk/java-sdk.html#make-uptoken"
-  [bucket & {:keys [access-key secret-key expires mimeLimit persistentOps detectMime deadline endUser isPrefixalScope fsizeMin callbackBodyType returnBody saveKey callbackHost persistentPipeline callbackBody scope fileType persistentNotifyUrl fsizeLimit insertOnly returnUrl callbackUrl] :as opts :or {expires 3600}}]
+  "Create a uptoken for uploading file.
+
+  :key             - A file key or prefix used to limit the token scope.
+                     Leave it as nil if no limit on scope.
+  :isPrefixalScope - whether the key should be a prefix or not.
+
+  see http://developer.qiniu.com/docs/v6/sdk/java-sdk.html#make-uptoken"
+  [bucket & {:keys [access-key secret-key expires mimeLimit persistentOps
+                    detectMime deadline endUser isPrefixalScope fsizeMin
+                    callbackBodyType returnBody saveKey callbackHost
+                    persistentPipeline callbackBody key fileType
+                    persistentNotifyUrl fsizeLimit insertOnly returnUrl
+                    callbackUrl] :as opts :or {expires 3600}}]
   (let [auth (create-auth opts)
         ^StringMap sm (StringMap.)]
-    (doseq [[k v] opts]
+    (doseq [[k v] (dissoc opts :key)]
       (.put sm (name k) v))
-    (.uploadToken auth bucket nil expires sm true)))
+    (.uploadToken auth bucket key expires sm true)))
 
 (defn- map->string-map
   [m]

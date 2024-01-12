@@ -1,4 +1,4 @@
-(defproject cn.leancloud/clj.qiniu "0.2.2"
+(defproject cn.leancloud/clj.qiniu "0.3.0"
   :description "Clojure SDK for qiniu.com storage."
   :url "https://github.com/leancloud/clj.qiniu"
   :license {:name "Eclipse Public License"

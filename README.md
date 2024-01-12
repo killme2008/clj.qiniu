@@ -37,7 +37,7 @@ require it in your namespace:
 (qiniu/uptoken bucket)
 (qiniu/uptoken bucket
 	:expires 3600
-	:scope scope
+    :key "photo/my.jpg" ;; limit scope to key or a prefix
 	:callbackUrl "http://exmaple.com/callback"
 	:insertOnly 1
 	:detectMime 1)

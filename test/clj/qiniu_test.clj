@@ -34,11 +34,11 @@
 (deftest test-uptoken
   (testing "uptoken"
     (is (uptoken test-bucket :expires 10))
-    (is (uptoken test-bucket :expires 10 :scope test-bucket))
-    (is (uptoken test-bucket :expires 10 :scope test-bucket :callbackUrl "http://localhost"))
-    (is (uptoken test-bucket :expires 10 :scope test-bucket :callbackUrl "http://localhost" :detectMime 1))
-    (is (uptoken test-bucket :expires 10 :scope test-bucket  :callbackUrl "http://localhost" :detectMime 1 :insertOnly 1))
-    (is (uptoken test-bucket :expires 10 :scope test-bucket  :callbackUrl "http://localhost" :detectMime 1 :insertOnly 1 :fsizeLimit (* 1024 1024)))))
+    (is (uptoken test-bucket :expires 10 :key "photos" :isPrefixalScope true))
+    (is (uptoken test-bucket :expires 10 :key "photos/my.jpg" :callbackUrl "http://localhost"))
+    (is (uptoken test-bucket :expires 10 :key "my.jpg" :callbackUrl "http://localhost" :detectMime 1))
+    (is (uptoken test-bucket :expires 10 :key "my.jpg"  :callbackUrl "http://localhost" :detectMime 1 :insertOnly 1))
+    (is (uptoken test-bucket :expires 10 :key test-bucket  :callbackUrl "http://localhost" :detectMime 1 :insertOnly 1 :fsizeLimit (* 1024 1024)))))
 
 (deftest test-upload
   (testing "upload"
