@@ -1,7 +1,9 @@
 (ns clj.qiniu-test
-  (:import [java.io StringReader])
+  (:import [java.util Base64]
+           [java.io StringReader])
   (:require [clojure.test :refer :all]
             [clojure.string :as cstr]
+            [cheshire.core :as json]
             [clojure.java.io :as io]
             [clj.qiniu :refer :all]))
 
@@ -31,14 +33,29 @@
       (is (= test-secret (:SECRET-KEY config)))
       (is (= "Clojure/qiniu sdk 1.0" (:USER-AGENT config))))))
 
+(defn decode-base64 [to-decode]
+  (String. (.decode (java.util.Base64/getDecoder) to-decode)))
+
+(defn- decode-token-json
+  "Deocode uptoken into a policy map."
+  [token]
+  (-> (cstr/split (or token "") #":")
+      (last)
+      (decode-base64)
+      (json/parse-string true)))
+
 (deftest test-uptoken
   (testing "uptoken"
+    (is (-> (uptoken test-bucket :key "photos" :isPrefixalScope true)
+            (decode-token-json)
+            (dissoc :deadline)
+            (= {:scope (str test-bucket ":photos")
+                :isPrefixalScope true})))
     (is (uptoken test-bucket :expires 10))
-    (is (uptoken test-bucket :expires 10 :scope test-bucket))
-    (is (uptoken test-bucket :expires 10 :scope test-bucket :callbackUrl "http://localhost"))
-    (is (uptoken test-bucket :expires 10 :scope test-bucket :callbackUrl "http://localhost" :detectMime 1))
-    (is (uptoken test-bucket :expires 10 :scope test-bucket  :callbackUrl "http://localhost" :detectMime 1 :insertOnly 1))
-    (is (uptoken test-bucket :expires 10 :scope test-bucket  :callbackUrl "http://localhost" :detectMime 1 :insertOnly 1 :fsizeLimit (* 1024 1024)))))
+    (is (uptoken test-bucket :expires 10 :key "photos/my.jpg" :callbackUrl "http://localhost"))
+    (is (uptoken test-bucket :expires 10 :key "my.jpg" :callbackUrl "http://localhost" :detectMime 1))
+    (is (uptoken test-bucket :expires 10 :key "my.jpg"  :callbackUrl "http://localhost" :detectMime 1 :insertOnly 1))
+    (is (uptoken test-bucket :expires 10 :key test-bucket  :callbackUrl "http://localhost" :detectMime 1 :insertOnly 1 :fsizeLimit (* 1024 1024)))))
 
 (deftest test-upload
   (testing "upload"

@@ -36,11 +36,11 @@ require it in your namespace:
 ```clojure
 (qiniu/uptoken bucket)
 (qiniu/uptoken bucket
-	:expires 3600
-	:scope scope
-	:callbackUrl "http://exmaple.com/callback"
-	:insertOnly 1
-	:detectMime 1)
+    :expires 3600
+    :key "photo/my.jpg" ;; limit scope to key or a prefix
+    :callbackUrl "http://exmaple.com/callback"
+    :insertOnly 1
+    :detectMime 1)
 ```
 
 更多选项直接看源码吧。
